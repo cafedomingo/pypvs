@@ -28,7 +28,7 @@ class PVSFCGIClient:
         self.cookies = None
 
     @property
-    def pvs_url(self) -> str:
+    def pvs_url(self) -> str | None:
         return self._pvs_url
 
     @pvs_url.setter

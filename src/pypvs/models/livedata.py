@@ -142,7 +142,7 @@ class PVSLiveData:
         if value is None:
             return None
         try:
-            timestamp = int(value) if isinstance(value, str) else int(value)
+            timestamp: float = int(value)
             current_time = datetime.now(UTC).timestamp()
 
             # Detect milliseconds vs seconds

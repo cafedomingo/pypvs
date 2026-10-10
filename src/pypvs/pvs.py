@@ -133,7 +133,7 @@ class PVS:
         await self._firmware.setup()
         self.fcgi_client.set_pvs_details({"serial": self._firmware.serial})
 
-    async def setup(self, auth_password: str = None) -> None:
+    async def setup(self, auth_password: str | None = None) -> None:
         if not self._firmware.serial:
             await self.discover()
 
@@ -175,6 +175,7 @@ class PVS:
         """Update data."""
         if not self._supported_features:
             await self.probe()
+            assert self._supported_features is not None  # set by probe()
             if not (self._supported_features & SupportedFeatures.INVERTERS):
                 # start the re-probe backoff from this probe
                 self._inverter_last_reprobe = time.monotonic()
@@ -210,12 +211,12 @@ class PVS:
         return data
 
     @property
-    def host(self) -> str:
+    def host(self) -> str | None:
         """Return the PVS host."""
         return self._host
 
     @host.setter
-    def host(self, value: str):
+    def host(self, value: str | None):
         self._host = value
         if self._host:
             self.update_clients()
@@ -244,6 +245,8 @@ class PVS:
         Returns:
             PVSWebSocket instance with enable callback wired up
         """
+        if not self._host:
+            raise ValueError("PVS host must be set before creating a websocket")
         return PVSWebSocket(
             host=self._host,
             port=port,

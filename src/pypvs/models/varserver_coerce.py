@@ -7,7 +7,7 @@ energy counters, a false 0 looks like a counter reset).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, overload
 
 
 def float_var(
@@ -32,6 +32,10 @@ def int_var(data: dict[str, Any], key: str, default: int | None = None) -> int |
         return default
 
 
+@overload
+def str_var(data: dict[str, Any], key: str, default: str = "") -> str: ...
+@overload
+def str_var(data: dict[str, Any], key: str, default: None) -> str | None: ...
 def str_var(data: dict[str, Any], key: str, default: str | None = "") -> str | None:
     v = data.get(key)
     return default if v is None else str(v)

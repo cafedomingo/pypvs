@@ -35,7 +35,7 @@ class PVSGatewayUpdater(PVSUpdater):
 
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
-        sys_info: list[dict[str, Any]] = {
+        sys_info: dict[str, Any] = {
             "/sys/info/sys_type": None,
             "/sys/info/model": None,
             "/sys/info/hwrev": None,
