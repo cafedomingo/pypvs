@@ -204,3 +204,42 @@ def test_named_reads_parse_and_reject_malformed_answers():
     pvs.getVarserver = malformed
     with pytest.raises(PVSDataFormatError):
         asyncio.run(pvs.getVarserverVarsByName(names))
+
+
+def test_once_caching_works_an_empty_match_costs_one_request():
+    """At night the inverter match has no results; with caching known to work
+    that must not turn into two full-namespace queries."""
+    server = FakeVarserver(METER)
+    pvs = make_pvs(server)
+    query(pvs, "/sys/devices/meter/")  # caching works here
+    server.requests.clear()
+    with pytest.raises(PVSCommunicationError):
+        query(pvs)
+    assert len(server.requests) == 1
+
+
+def test_a_probe_retries_caching_for_a_match_marked_uncacheable():
+    server = FakeVarserver(INVERTERS, supports_cache=False)
+    pvs = make_pvs(server)
+    query(pvs)
+    server.supports_cache = True  # e.g. a firmware update
+    pvs.reset_query_caches()
+    query(pvs)
+    assert "cache" in server.requests[-1]
+
+
+def test_reading_no_names_makes_no_request():
+    server = FakeVarserver(METER)
+    pvs = make_pvs(server)
+    assert asyncio.run(pvs.getVarserverVarsByName([])) == {}
+    assert server.requests == []
+
+
+def test_a_single_var_is_read_whatever_name_the_pvs_echoes():
+    pvs = make_pvs(FakeVarserver(METER))
+
+    async def answer(endpoint, params=None):
+        return {"count": 1, "values": [{"name": "/Sys/Info/Uptime ", "value": "42"}]}
+
+    pvs.getVarserver = answer
+    assert asyncio.run(pvs.getVarserverVar("/sys/info/uptime")) == "42"

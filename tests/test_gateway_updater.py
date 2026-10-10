@@ -404,3 +404,34 @@ def test_a_retried_name_is_read_on_its_own(monkeypatch):
     run(updater)
     assert pvs.calls == ["/sys/pvs/flashwear_type_b"]
     assert all("/sys/pvs/flashwear_type_b" not in batch for batch in pvs.batches)
+
+
+def test_a_server_error_on_the_extras_batch_falls_back_to_single_reads():
+    server_error = PVSCommunicationError("HTTP 500", status=500)
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+
+    async def batch(names):
+        if "/sys/info/boardtype" in names:
+            raise server_error  # one extra trips the PVS
+        return {name: pvs.values[name] for name in names}
+
+    pvs.request_named_vars = batch
+    gw = run(pvs.updater(batched=True))
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"
+    assert gw.board_type == "A0K LIB 1.0 PSoC5"  # read on its own
+
+
+def test_batching_stops_after_repeated_failures(monkeypatch):
+    clock = Clock(monkeypatch)
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+
+    async def always_rejected(names):
+        pvs.batches.append(list(names))
+        raise PVSDataFormatError("no lists here")
+
+    pvs.request_named_vars = always_rejected
+    updater = pvs.updater(batched=True)
+    for _ in range(5):
+        run(updater)
+        clock.now += 30
+    assert len(pvs.batches) == gateway_module.BATCH_FAILURES_BEFORE_GIVING_UP

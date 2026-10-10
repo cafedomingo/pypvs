@@ -22,6 +22,8 @@ EXTRAS_REFRESH_S = 300
 # The PVS answers 400 for a variable it doesn't have. That can be temporary
 # (services still starting, a battery commissioned later), so ask again later.
 UNSUPPORTED_RETRY_S = 3600
+# Stop batching after this many batches in a row had to fall back.
+BATCH_FAILURES_BEFORE_GIVING_UP = 3
 # An empty answer may be a blip; drop the cached value only once it repeats.
 EMPTY_REFRESHES_BEFORE_DROP = 3
 
@@ -39,6 +41,7 @@ class PVSGatewayUpdater(PVSUpdater):
         self._extras_at: float | None = None
         # var name -> consecutive refreshes it came back empty
         self._empty_count: dict[str, int] = {}
+        self._batch_failures = 0
 
     async def probe(
         self, discovered_features: SupportedFeatures
@@ -85,21 +88,28 @@ class PVSGatewayUpdater(PVSUpdater):
 
     async def _read_batch(self, names: list[str]) -> dict[str, Any] | None:
         """Read `names` in one request. Returns None when the batch can't be
-        used (no batch reader, or the PVS rejected it with 400 because a name
-        is unknown, or the answer was malformed); the caller then reads the
-        names one by one, which records the unknown ones."""
-        if self._request_named_vars is None or not names:
+        used: no batch reader, batching given up on, the PVS rejected it (400
+        for an unknown name, or a server error), or the answer was malformed.
+        The caller then reads the names one by one, which also records unknown
+        ones. Only an unreachable PVS (no HTTP status) raises."""
+        if (
+            self._request_named_vars is None
+            or not names
+            or self._batch_failures >= BATCH_FAILURES_BEFORE_GIVING_UP
+        ):
             return None
         try:
             values = await self._request_named_vars(names)
         except PVSDataFormatError:
-            return None
+            values = None
         except PVSCommunicationError as e:
-            if e.status != HTTP_BAD_REQUEST:
+            if e.status is None:
                 raise
-            return None
-        for name in names:
-            self._unsupported_vars.pop(name, None)
+            values = None
+        if values is None:
+            self._batch_failures += 1
+            if self._batch_failures == BATCH_FAILURES_BEFORE_GIVING_UP:
+                _LOGGER.info("Batched reads keep failing; reading one by one")
         return values
 
     async def update(self, pvs_data: PVSData) -> None:
@@ -113,9 +123,12 @@ class PVSGatewayUpdater(PVSUpdater):
         batch = await self._read_batch(known)
         required = [n for n in known if n not in OPTIONAL_CORE_VARS]
         if batch is not None and all(n in batch for n in required):
+            self._batch_failures = 0
             sys_info.update(batch)
             singles = retry
         else:
+            if batch is not None:
+                self._batch_failures += 1
             singles = known + retry
         for name in singles:
             if name in OPTIONAL_CORE_VARS:
@@ -137,7 +150,8 @@ class PVSGatewayUpdater(PVSUpdater):
         """Best effort and never fails the gateway update. A variable the PVS
         lacks (400) is dropped; one that keeps answering empty is dropped after
         a few refreshes; any other error skips just that variable, keeping its
-        last value. Only an unreachable PVS (no HTTP status) ends the refresh
+        last value. Names are read in one batch when possible and one by one
+        otherwise. Only an unreachable PVS (no HTTP status) ends the refresh
         early, so a slow PVS costs one timeout rather than one per variable."""
         self._extras_at = now
         known, retry = self._split(names, now)
