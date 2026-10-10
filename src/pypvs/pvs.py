@@ -19,6 +19,7 @@ from .models.common import CommonProperties
 from .models.pvs import PVSData
 from .pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError, PVSFCGIClientPostError
 from .pvs_websocket import PVSWebSocket
+from .query_cache import QUERY_CACHE_TTL_S, QueryCache
 from .updaters.base import PVSUpdater
 from .updaters.ess import PVSESSUpdater
 from .updaters.gateway import PVSGatewayUpdater
@@ -71,7 +72,20 @@ def get_updaters() -> list[type[PVSUpdater]]:
 
 
 class PVS:
-    def __init__(self, session, host=None, user="ssm_owner", password=None):
+    def __init__(
+        self,
+        session,
+        host=None,
+        user="ssm_owner",
+        password=None,
+        query_cache_ttl_s: float | None = QUERY_CACHE_TTL_S,
+    ):
+        """
+        Args:
+            query_cache_ttl_s: rebuild interval for the PVS-side caches the
+                device updaters' match queries go through (doc/Caching.md).
+                None turns caching off: every match is a plain match.
+        """
         self._host: str | None = None
         self._common_properties: CommonProperties = CommonProperties()
 
@@ -87,6 +101,14 @@ class PVS:
 
         self.fcgi_client = PVSFCGIClient(
             session=session, auth_user=user, auth_password=password
+        )
+        self._query_cache = (
+            None
+            if query_cache_ttl_s is None
+            else QueryCache(
+                lambda params: self.getVarserver("/vars", params=params),
+                query_cache_ttl_s,
+            )
         )
         self.host = host
 
@@ -148,8 +170,14 @@ class PVS:
                 f"Cannot construct dictionary from response {response_data}"
             ) from err
 
-    async def getVarserverVars(self, match):
-        response_data = await self.getVarserver("/vars", params={"match": match})
+    async def getVarserverVars(self, match, *, cache: bool = False):
+        """Variables whose names contain `match`. With cache=True the query
+        goes through a PVS-side cache (opt in only for matches you poll; each
+        leaves one cache on the PVS until it restarts)."""
+        if cache and self._query_cache is not None:
+            response_data = await self._query_cache.read(match)
+        else:
+            response_data = await self.getVarserver("/vars", params={"match": match})
 
         try:
             # construct a new dictionary with the varname
@@ -185,17 +213,25 @@ class PVS:
         await self._firmware.setup()
         return True
 
+    async def _cached_vars(self, match: str) -> dict[str, Any]:
+        return await self.getVarserverVars(match, cache=True)
+
     async def probe(self) -> None:
         """Probe for model and supported features."""
+        # probe against the PVS as it is now: every match is created afresh
+        if self._query_cache is not None:
+            self._query_cache.reset()
         supported_features = SupportedFeatures(0)
         updaters: list[PVSUpdater] = []
         self._common_properties.reset_probe_properties()
 
         for updater in get_updaters():
-            kwargs = {}
+            kwargs: dict[str, Any] = {}
+            # updaters registered by others may predate these arguments
             if _accepts(updater, "request_named_vars"):
-                # updaters registered by others may predate this argument
                 kwargs["request_named_vars"] = self.getVarserverVarsByName
+            if _accepts(updater, "request_cached_vars"):
+                kwargs["request_cached_vars"] = self._cached_vars
             klass = updater(
                 request_var=self.getVarserverVar,
                 request_vars=self.getVarserverVars,
@@ -259,6 +295,8 @@ class PVS:
     @host.setter
     def host(self, value: str | None):
         self._host = value
+        if self._query_cache is not None:
+            self._query_cache.reset()  # those caches live on the old PVS
         self.update_clients()
 
     @property

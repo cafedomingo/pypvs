@@ -18,7 +18,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            await self._request_vars(VARS_MATCH_TRANSFER_SWITCH)
+            await self._match(VARS_MATCH_TRANSFER_SWITCH)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug(
                 "No transfer switches found on varserver filter %s: %s",
@@ -32,7 +32,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            transfer_switches_dict: dict[str, Any] = await self._request_vars(
+            transfer_switches_dict: dict[str, Any] = await self._match(
                 VARS_MATCH_TRANSFER_SWITCH
             )
         except Exception as e:

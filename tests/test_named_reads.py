@@ -66,7 +66,7 @@ def test_an_updater_without_the_new_argument_still_works():
     async def get_var(name):
         return "1"
 
-    async def get_vars(match):
+    async def get_vars(match, cache=False):
         raise PVSDataFormatError("none")
 
     pvs.getVarserverVar = get_var

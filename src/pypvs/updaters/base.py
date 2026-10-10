@@ -41,18 +41,27 @@ class PVSUpdater:
         common_properties: CommonProperties,
         request_named_vars: Callable[[list[str]], Awaitable[dict[str, Any]]]
         | None = None,
+        request_cached_vars: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         """Initialize the PVS updater.
 
         request_named_vars, when given, reads several variables in one request
         (the PVS answers 400 for the whole request if any name is unknown).
+        request_cached_vars, when given, runs a match query through a PVS-side
+        cache (see doc/Caching.md); updaters use it via _match().
         """
         self._request_var = request_var
         self._request_vars = request_vars
         self._request_named_vars = request_named_vars
+        self._request_cached_vars = request_cached_vars
         self._supported_features = SupportedFeatures(0)
         self._common_properties = common_properties
         self._data_unavailable = False
+
+    async def _match(self, match: str) -> dict[str, Any]:
+        """A match query, cached on the PVS when the PVS offers it."""
+        request = self._request_cached_vars or self._request_vars
+        return await request(match)
 
     @abstractmethod
     async def probe(

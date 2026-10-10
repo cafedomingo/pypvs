@@ -30,7 +30,7 @@ def make_pvs(monkeypatch, inverter_answers):
     async def get_var(name):
         return "1"
 
-    async def get_vars(match):
+    async def get_vars(match, cache=False):
         if match == "/sys/devices/inverter/":
             calls["inverter_queries"] += 1
             return answers.pop(0) if answers else {}
