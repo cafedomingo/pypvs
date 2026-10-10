@@ -100,12 +100,15 @@ class QueryCache:
                 if err.status != HTTP_BAD_REQUEST:
                     raise
                 data = None  # the PVS no longer has it
+            current = generation == self._generation
             if _has_values(data):
-                self._readable(match)
+                if current:
+                    self._readable(match)
                 return data
-            if generation == self._generation and self._lost(match, now):
+            if current and self._lost(match, now):
                 return await self._request({"match": match})
-        self._created.pop(match, None)
+        if generation == self._generation:
+            self._created.pop(match, None)
         data = await self._request({"match": match, "cache": cid})
         if _has_values(data) and generation == self._generation:
             self._created[match] = now

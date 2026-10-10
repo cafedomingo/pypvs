@@ -46,8 +46,9 @@ One state per match: NONE (no record), LIVE (created at a time) or PLAIN
 | LIVE, TTL reached | create | as NONE | |
 | PLAIN | plain match | as a plain match | NONE once the hour is up; one more loss before a good read returns to PLAIN |
 
-`probe()` sets every match to NONE; a request in flight across it records
-nothing. Changing `host` forgets everything, PLAIN included. A call makes one
+`probe()` sets every LIVE match to NONE and keeps losses and PLAIN, which
+describe the PVS; a request in flight across it records nothing. Changing
+`host` forgets everything, PLAIN included. A call makes one
 request, except right after a cache was lost (read, then create), so a match
 with nothing behind it costs one request per poll. PLAIN keeps a PVS that
 accepts caches but will not serve them from costing two requests per poll.

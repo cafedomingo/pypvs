@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 
 import pytest
@@ -183,10 +184,12 @@ def test_read_500_raises_and_keeps_the_cache():
 
 
 class Forgetful(FakeVarserver):
-    """Accepts a create, then cannot read the cache back."""
+    """Accepts a create, then cannot read the cache back while forgetting."""
+
+    forgetting = True
 
     async def handle(self, params):
-        if set(params) == {"cache"}:
+        if self.forgetting and set(params) == {"cache"}:
             self.requests.append(dict(params))
             raise PVSCommunicationError("HTTP 400: 0x0040", status=400)
         return await super().handle(params)
@@ -237,6 +240,67 @@ def test_reset_during_a_create_records_nothing():
     cache._request = server.handle
     read(cache, "/sys/devices/meter/")
     assert server.kinds() == ["create", "create"]
+
+
+def test_a_lost_read_across_a_reset_counts_and_clears_nothing():
+    server = Forgetful(METER)
+    cache = cache_for(server)
+    read(cache, "/sys/devices/meter/")  # LIVE
+
+    async def reset_then_lose(params):
+        cache._request = server.handle
+        cache.reset()
+        cache._created["/sys/devices/meter/"] = 0.0  # a newer call's record
+        return await server.handle(params)
+
+    cache._request = reset_then_lose
+    asyncio.run(cache.read("/sys/devices/meter/"))
+    assert cache._created == {"/sys/devices/meter/": 0.0}
+    assert cache._losses == {}
+
+
+def test_probe_keeps_losses_and_plain_host_change_forgets_them(monkeypatch):
+    server = Forgetful({**SYS_INFO, **METER})
+    pvs, clock = make_pvs(monkeypatch, server)
+    for _ in range(LOSS_LIMIT + 1):
+        update(pvs)
+        clock.now += 30
+    server.requests.clear()
+    asyncio.run(pvs.probe())
+    assert device_requests(server, "/sys/devices/meter/") == ["match"]
+    server.requests.clear()
+    pvs.host = "other.test"
+    asyncio.run(pvs.getVarserverVars("/sys/devices/meter/", cache=True))
+    assert server.kinds() == ["create"]
+
+
+def test_losses_before_the_limit_survive_a_probe():
+    server = Forgetful(METER)
+    cache = cache_for(server)
+    read(cache, "/sys/devices/meter/")
+    read(cache, "/sys/devices/meter/")  # one loss
+    cache.reset()
+    for _ in range(LOSS_LIMIT):
+        read(cache, "/sys/devices/meter/")
+    assert server.kinds()[-1] == "match"
+
+
+def test_readable_again_is_logged_and_a_later_episode_warns_again(caplog):
+    caplog.set_level(logging.INFO, logger="pypvs.query_cache")
+    clock = Clock()
+    server = Forgetful(METER)
+    cache = cache_for(server, clock)
+    for _ in range(LOSS_LIMIT + 1):
+        read(cache, "/sys/devices/meter/")
+    clock.now += UNREADABLE_RETRY_S
+    server.forgetting = False
+    for _ in range(2):
+        read(cache, "/sys/devices/meter/")
+    assert "readable again" in caplog.text
+    server.forgetting = True
+    for _ in range(LOSS_LIMIT + 1):
+        read(cache, "/sys/devices/meter/")
+    assert caplog.text.count("keeps losing the cache") == 2
 
 
 @pytest.mark.parametrize("ttl", [0, -1.0])
