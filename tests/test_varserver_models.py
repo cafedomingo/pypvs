@@ -314,7 +314,7 @@ def test_livedata_from_varserver_numeric_and_nan_strings():
     assert ld.ess_p is None
     assert ld.soc is None
     assert ld.backup_time_remaining == 0.0
-    assert ld.midstate == 2
+    assert ld.midstate == "2"
 
 
 def test_livedata_from_varserver_with_ess_fields():
@@ -331,7 +331,7 @@ def test_livedata_from_varserver_with_ess_fields():
     assert ld.ess_p == 0.35
     assert ld.soc == 0.575
     assert ld.backup_time_remaining == 1100.0
-    assert ld.midstate == 2
+    assert ld.midstate == "2"
 
 
 def test_ess_from_varserver_sample_payload():

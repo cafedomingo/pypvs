@@ -40,7 +40,8 @@ def make_updater(responses):
 
 def test_probe_finds_inverters():
     updater = make_updater([inverter_vars("A", "B")])
-    assert asyncio.run(updater.probe(SupportedFeatures(0))) & SupportedFeatures.INVERTERS
+    found = asyncio.run(updater.probe(SupportedFeatures(0)))
+    assert found & SupportedFeatures.INVERTERS
 
 
 def test_probe_with_empty_answer_reports_not_found():
