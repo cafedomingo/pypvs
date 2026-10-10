@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from pypvs.exceptions import PVSCommunicationError
 from pypvs.models.common import CommonProperties
 from pypvs.models.pvs import PVSData
@@ -23,11 +25,17 @@ SYS_INFO = {
 }
 
 
-def make_updater(values):
+def make_updater(values, failures=None, calls=None):
+    """`failures` maps a var name to the exception asking for it raises."""
+
     async def request_var(name):
+        if calls is not None:
+            calls.append(name)
+        if failures and name in failures:
+            raise failures[name]
         if name not in values:
             # what the PVS does for a variable it doesn't have: HTTP 400
-            raise PVSCommunicationError("POST request failed: HTTP 400")
+            raise PVSCommunicationError("POST request failed: HTTP 400", status=400)
         return values[name]
 
     async def request_vars(match):
@@ -58,3 +66,21 @@ def test_pvs_without_flashwear_still_reports_the_gateway():
     assert data.gateway is not None
     assert data.gateway.uptime_s == 81436.77
     assert data.gateway.flashwear_type_b_percent is None
+
+
+def test_unsupported_optional_var_is_not_asked_again():
+    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/pvs/flashwear_type_b"}
+    calls = []
+    updater = make_updater(values, calls=calls)
+    asyncio.run(updater.update(PVSData()))
+    asyncio.run(updater.update(PVSData()))
+    assert calls.count("/sys/pvs/flashwear_type_b") == 1
+
+
+def test_timeout_on_optional_var_is_not_mistaken_for_unsupported():
+    """Only a 400 means 'no such variable'; a timeout must still fail the update
+    rather than silently reporting the value as missing."""
+    timeout = PVSCommunicationError("Cannot reach the PVS: timeout")
+    updater = make_updater(SYS_INFO, failures={"/sys/pvs/flashwear_type_b": timeout})
+    with pytest.raises(PVSCommunicationError):
+        asyncio.run(updater.update(PVSData()))

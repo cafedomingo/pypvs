@@ -91,7 +91,9 @@ class PVS:
         except PVSFCGIClientLoginError as err:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
         except PVSFCGIClientPostError as err:
-            raise PVSCommunicationError(f"POST request failed: {err}") from err
+            raise PVSCommunicationError(
+                f"POST request failed: {err}", status=err.status
+            ) from err
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise PVSCommunicationError(f"Cannot reach the PVS: {err}") from err
         except Exception as err:
@@ -191,12 +193,10 @@ class PVS:
             now = time.monotonic()
             if (
                 self._inverter_last_reprobe is None
-                or now - self._inverter_last_reprobe
-                >= self._inverter_reprobe_interval
+                or now - self._inverter_last_reprobe >= self._inverter_reprobe_interval
             ):
                 _LOGGER.debug(
-                    "Inverters not yet discovered, re-probing "
-                    "(next retry in %ds)",
+                    "Inverters not yet discovered, re-probing (next retry in %ds)",
                     self._inverter_reprobe_interval,
                 )
                 self._inverter_last_reprobe = now

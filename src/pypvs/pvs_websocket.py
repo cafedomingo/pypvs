@@ -387,5 +387,5 @@ class PVSWebSocket:
                 return None
 
             return datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-        except (ValueError, TypeError, OSError):
+        except (ValueError, TypeError, OSError, OverflowError):
             return None
