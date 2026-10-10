@@ -84,3 +84,50 @@ def test_timeout_on_optional_var_is_not_mistaken_for_unsupported():
     updater = make_updater(SYS_INFO, failures={"/sys/pvs/flashwear_type_b": timeout})
     with pytest.raises(PVSCommunicationError):
         asyncio.run(updater.update(PVSData()))
+
+
+EXTRAS = {
+    # values as a PVS6 with a SunVault returned them
+    "/ess/config/dcm/control_param/min_customer_soc": "0.20",
+    "/ess/config/dcm/mode_param/control_mode": "SELF_CONSUMPTION",
+    "/net/wan0/state": "online",
+    "/net/wan1/state": "N/A",
+    "/net/sta0/state": "ready",
+    "/net/wwan0/state": "N/A",
+    "/sys/info/active_interface": "wan0",
+    "/sys/toggle_cell/broadband_connected": "1",
+    "/sys/toggle_cell/cell_connected": "0",
+    "/sys/toggle_cell/low_data_mode": "0",
+    "/sys/pvs/usb_erase_count": "0",
+    "/sys/info/fwrev": "",
+    "/sys/info/boardtype": "A0K LIB 1.0 PSoC5",
+}
+
+
+def test_gateway_extras():
+    data = PVSData()
+    asyncio.run(make_updater({**SYS_INFO, **EXTRAS}).update(data))
+    gw = data.gateway
+    assert gw.ess_reserve_soc == 0.2
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"
+    # interfaces the PVS reports as N/A are not present
+    assert gw.interface_states == {"wan0": "online", "sta0": "ready"}
+    assert gw.active_interface == "wan0"
+    assert gw.broadband_connected is True
+    assert gw.cell_connected is False
+    assert gw.low_data_mode is False
+    assert gw.usb_erase_count == 0
+    # an empty string is no value, not an empty firmware revision
+    assert gw.firmware_revision is None
+    assert gw.board_type == "A0K LIB 1.0 PSoC5"
+
+
+def test_gateway_without_extras_or_battery():
+    """A PVS without a battery (or older firmware) answers 400 for these."""
+    data = PVSData()
+    asyncio.run(make_updater(SYS_INFO).update(data))
+    gw = data.gateway
+    assert gw.ess_reserve_soc is None
+    assert gw.ess_control_mode is None
+    assert gw.interface_states == {}
+    assert gw.broadband_connected is None

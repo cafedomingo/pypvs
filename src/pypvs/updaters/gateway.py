@@ -3,7 +3,12 @@ from typing import Any
 
 from ..const import VARS_MATCH_INFO, SupportedFeatures
 from ..exceptions import PVSCommunicationError
-from ..models.gateway import PVSGateway
+from ..models.gateway import (
+    ESS_CONTROL_MODE,
+    ESS_RESERVE_SOC,
+    INTERFACES,
+    PVSGateway,
+)
 from ..models.pvs import PVSData
 from .base import PVSUpdater
 
@@ -12,7 +17,19 @@ _LOGGER = logging.getLogger(__name__)
 # Variables not every PVS has (flashwear_type_b is PVS6-only). The PVS answers
 # 400 for a variable it doesn't know; that marks it unsupported for good, while
 # other failures (timeouts, 5xx) still fail the update.
-OPTIONAL_VARS = {"/sys/pvs/flashwear_type_b"}
+OPTIONAL_VARS = {
+    "/sys/pvs/flashwear_type_b",
+    "/sys/pvs/usb_erase_count",
+    "/sys/info/fwrev",
+    "/sys/info/boardtype",
+    "/sys/info/active_interface",
+    *(f"/net/{name}/state" for name in INTERFACES),
+    "/sys/toggle_cell/broadband_connected",
+    "/sys/toggle_cell/cell_connected",
+    "/sys/toggle_cell/low_data_mode",
+    ESS_RESERVE_SOC,
+    ESS_CONTROL_MODE,
+}
 HTTP_BAD_REQUEST = 400
 
 
@@ -46,6 +63,7 @@ class PVSGatewayUpdater(PVSUpdater):
             "/sys/info/flash_usage": None,
             "/sys/info/cpu_usage": None,
             "/sys/pvs/flashwear_type_b": None,
+            **{name: None for name in OPTIONAL_VARS},
         }
 
         # undate individual vars and not by match as the match takes a long time
