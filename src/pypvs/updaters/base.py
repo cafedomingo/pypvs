@@ -39,10 +39,17 @@ class PVSUpdater:
         request_var: Callable[[str], Awaitable[Any]],
         request_vars: Callable[[str], Awaitable[dict[str, Any]]],
         common_properties: CommonProperties,
+        request_named_vars: Callable[[list[str]], Awaitable[dict[str, Any]]]
+        | None = None,
     ) -> None:
-        """Initialize the PVS updater."""
+        """Initialize the PVS updater.
+
+        request_named_vars, when given, reads several variables in one request
+        (the PVS answers 400 for the whole request if any name is unknown).
+        """
         self._request_var = request_var
         self._request_vars = request_vars
+        self._request_named_vars = request_named_vars
         self._supported_features = SupportedFeatures(0)
         self._common_properties = common_properties
         self._data_unavailable = False

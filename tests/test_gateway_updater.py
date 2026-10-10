@@ -59,6 +59,7 @@ class FakePVS:
         self.values = values
         self.failures = failures or {}
         self.calls = []
+        self.batches = []
 
     async def request_var(self, name):
         self.calls.append(name)
@@ -71,11 +72,21 @@ class FakePVS:
     async def request_vars(self, match):
         raise AssertionError("the gateway updater should not use match queries")
 
-    def updater(self):
+    async def request_named_vars(self, names):
+        self.batches.append(list(names))
+        for name in names:
+            if name in self.failures:
+                raise self.failures[name]
+        if any(name not in self.values for name in names):
+            raise BAD_REQUEST  # the PVS rejects the whole request
+        return {name: self.values[name] for name in names}
+
+    def updater(self, batched=False):
         return PVSGatewayUpdater(
             request_var=self.request_var,
             request_vars=self.request_vars,
             common_properties=CommonProperties(),
+            request_named_vars=self.request_named_vars if batched else None,
         )
 
 
@@ -314,3 +325,50 @@ def test_a_value_that_stays_empty_is_dropped(monkeypatch):
         assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
     clock.now += gateway_module.EXTRAS_REFRESH_S
     assert run(updater).ess_control_mode is None
+
+
+def test_batched_reads_use_one_request_each():
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    gw = run(pvs.updater(batched=True))
+    assert pvs.calls == []  # no single-variable reads
+    assert len(pvs.batches) == 2  # core, then extras with interfaces
+    assert gw.uptime_s == 81436.77
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"
+    assert gw.interface_states["wan0"] == "online"
+
+
+def test_an_unknown_name_falls_back_once_then_is_left_out(monkeypatch):
+    """The PVS rejects a whole batch for one unknown name (a PVS5 has no
+    flashwear_type_b): read one by one once, then batch without it."""
+    clock = Clock(monkeypatch)
+    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/pvs/flashwear_type_b"}
+    pvs = FakePVS({**values, **EXTRAS, **NET})
+    updater = pvs.updater(batched=True)
+    gw = run(updater)
+    assert gw.flashwear_type_b_percent is None
+    assert "/sys/pvs/flashwear_type_b" in pvs.calls  # the one-by-one pass
+    pvs.calls.clear()
+    pvs.batches.clear()
+    clock.now += 30
+    run(updater)
+    assert pvs.calls == []
+    assert "/sys/pvs/flashwear_type_b" not in pvs.batches[0]
+
+
+def test_a_failed_core_batch_still_fails_the_update():
+    timeout = PVSCommunicationError("Cannot reach the PVS: timeout")
+    pvs = FakePVS(SYS_INFO, failures={"/sys/info/uptime": timeout})
+    with pytest.raises(PVSCommunicationError):
+        run(pvs.updater(batched=True))
+
+
+def test_a_timeout_on_the_extras_batch_keeps_their_last_values(monkeypatch):
+    clock = Clock(monkeypatch)
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    updater = pvs.updater(batched=True)
+    run(updater)
+    pvs.failures["/sys/info/boardtype"] = PVSCommunicationError("timeout")
+    clock.now += gateway_module.EXTRAS_REFRESH_S
+    gw = run(updater)
+    assert gw.board_type == "A0K LIB 1.0 PSoC5"
+    assert gw.uptime_s == 81436.77

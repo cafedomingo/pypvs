@@ -71,19 +71,52 @@ class PVSGatewayUpdater(PVSUpdater):
         self._unsupported_vars.pop(name, None)
         return value
 
+    def _wanted(self, names: tuple[str, ...], now: float) -> list[str]:
+        """Names not currently known to be unsupported."""
+        return [
+            n
+            for n in names
+            if (marked := self._unsupported_vars.get(n)) is None
+            or now - marked >= UNSUPPORTED_RETRY_S
+        ]
+
+    async def _read_batch(self, names: list[str]) -> dict[str, Any] | None:
+        """Read `names` in one request. Returns None when the batch can't be
+        used (no batch reader, or the PVS rejected it with 400 because a name
+        is unknown, or the answer was malformed); the caller then reads the
+        names one by one, which records the unknown ones."""
+        if self._request_named_vars is None or not names:
+            return None
+        try:
+            values = await self._request_named_vars(names)
+        except PVSDataFormatError:
+            return None
+        except PVSCommunicationError as e:
+            if e.status != HTTP_BAD_REQUEST:
+                raise
+            return None
+        for name in names:
+            self._unsupported_vars.pop(name, None)
+        return values
+
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         now = time.monotonic()
         sys_info: dict[str, Any] = {}
 
-        # individual vars rather than a match, as the match takes a long time
-        for name in CORE_VARS:
-            if name in OPTIONAL_CORE_VARS:
-                value = await self._read(name, now)
-                if value is not _MISSING:
-                    sys_info[name] = value
-            else:
-                sys_info[name] = await self._request_var(name)
+        # one request for every name; one by one only when the batch fails
+        names = self._wanted(CORE_VARS, now)
+        batch = await self._read_batch(names)
+        if batch is not None:
+            sys_info.update(batch)
+        else:
+            for name in names:
+                if name in OPTIONAL_CORE_VARS:
+                    value = await self._read(name, now)
+                    if value is not _MISSING:
+                        sys_info[name] = value
+                else:
+                    sys_info[name] = await self._request_var(name)
 
         if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
             model = sys_info.get("/sys/info/model")
@@ -100,7 +133,17 @@ class PVSGatewayUpdater(PVSUpdater):
         last value. Only an unreachable PVS (no HTTP status) ends the refresh
         early, so a slow PVS costs one timeout rather than one per variable."""
         self._extras_at = now
-        for name in names:
+        wanted = self._wanted(names, now)
+        try:
+            batch = await self._read_batch(wanted)
+        except PVSError as e:
+            _LOGGER.debug("Keeping previous gateway extras: %s", e)
+            return
+        if batch is not None:
+            for name in wanted:
+                self._record_extra(name, batch.get(name, _MISSING))
+            return
+        for name in wanted:
             try:
                 value = await self._read(name, now)
             except PVSCommunicationError as e:
@@ -112,13 +155,16 @@ class PVSGatewayUpdater(PVSUpdater):
             except PVSError as e:
                 _LOGGER.debug("Keeping last value of %s: %s", name, e)
                 continue
-            if value is not _MISSING:
-                self._extras[name] = value
-                self._empty_count.pop(name, None)
-            elif name in self._unsupported_vars:
+            self._record_extra(name, value)
+
+    def _record_extra(self, name: str, value: Any) -> None:
+        if value is not _MISSING:
+            self._extras[name] = value
+            self._empty_count.pop(name, None)
+        elif name in self._unsupported_vars:
+            self._extras.pop(name, None)
+        else:
+            empties = self._empty_count.get(name, 0) + 1
+            self._empty_count[name] = empties
+            if empties >= EMPTY_REFRESHES_BEFORE_DROP:
                 self._extras.pop(name, None)
-            else:
-                empties = self._empty_count.get(name, 0) + 1
-                self._empty_count[name] = empties
-                if empties >= EMPTY_REFRESHES_BEFORE_DROP:
-                    self._extras.pop(name, None)

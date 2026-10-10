@@ -36,8 +36,12 @@ def make_pvs(monkeypatch, inverter_answers):
             return answers.pop(0) if answers else {}
         return {}
 
+    async def get_named(names):
+        return {name: "1" for name in names}
+
     pvs.getVarserverVar = get_var
     pvs.getVarserverVars = get_vars
+    pvs.getVarserverVarsByName = get_named
     # the updaters were bound at construction time
     pvs._firmware._request_var = get_var
     return pvs, clock, calls
