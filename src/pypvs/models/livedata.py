@@ -114,7 +114,10 @@ class PVSLiveData:
         if value is None or isinstance(value, bool):
             return None
         if isinstance(value, (int, float)):
-            number = float(value)
+            try:
+                number = float(value)
+            except OverflowError:  # an int too large for a float
+                return None
         elif isinstance(value, str):
             try:
                 number = float(value)
@@ -151,5 +154,5 @@ class PVSLiveData:
                 return None
 
             return datetime.fromtimestamp(timestamp, tz=UTC)
-        except (ValueError, TypeError, OSError):
+        except (ValueError, TypeError, OSError, OverflowError):
             return None

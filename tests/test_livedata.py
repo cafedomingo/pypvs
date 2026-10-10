@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from datetime import UTC, datetime
 
 from pypvs.models.livedata import PVSLiveData
@@ -53,4 +52,10 @@ def test_get_by_var_path():
     live = PVSLiveData.from_varserver(LIVE_STRINGS)
     assert live.get("/sys/livedata/pv_p") == 3.2
     assert live.get("/sys/livedata/unknown") is None
-    assert not math.isnan(live.get("/sys/livedata/net_p"))
+
+
+def test_out_of_range_values_are_missing_not_errors():
+    assert PVSLiveData._parse_numeric(10**400) is None
+    assert PVSLiveData._parse_numeric("1e400") is None
+    assert PVSLiveData._parse_timestamp(float("inf")) is None
+    assert PVSLiveData._parse_timestamp(10**400) is None

@@ -82,7 +82,9 @@ class PVS:
         except PVSFCGIClientLoginError as err:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
         except PVSFCGIClientPostError as err:
-            raise PVSCommunicationError(f"POST request failed: {err}") from err
+            raise PVSCommunicationError(
+                f"POST request failed: {err}", status=err.status
+            ) from err
         except (TimeoutError, aiohttp.ClientError) as err:
             raise PVSCommunicationError(f"Cannot reach the PVS: {err}") from err
         except Exception as err:

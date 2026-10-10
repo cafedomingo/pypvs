@@ -12,6 +12,10 @@ class PVSFCGIClientLoginError(Exception):
 class PVSFCGIClientPostError(Exception):
     """Exception raised when POST request to the PVS fails"""
 
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
 
 class PVSFCGIClient:
     def __init__(self, session, auth_user=None, auth_password=None):
@@ -107,7 +111,8 @@ class PVSFCGIClient:
                     response_body[:500],
                 )
                 raise PVSFCGIClientPostError(
-                    f"HTTP {response.status}: {response_body[:200]}"
+                    f"HTTP {response.status}: {response_body[:200]}",
+                    status=response.status,
                 )
 
     async def execute_post_request(self, endpoint, params=None):
