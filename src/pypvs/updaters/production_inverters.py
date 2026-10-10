@@ -78,4 +78,3 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             inverter["sn"]: PVSInverter.from_varserver(inverter)
             for inverter in inverters_data
         }
-

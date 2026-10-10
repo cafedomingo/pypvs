@@ -57,7 +57,9 @@ def test_login_does_not_log_credentials(caplog):
     caplog.set_level(logging.DEBUG, logger="pypvs")
     client = make_client(FakeSession(), password="hunter2")
 
-    asyncio.run(client.execute_post_request("/vars", params={"name": "/sys/info/uptime"}))
+    asyncio.run(
+        client.execute_post_request("/vars", params={"name": "/sys/info/uptime"})
+    )
 
     logged = caplog.text
     assert SECRET_COOKIE not in logged

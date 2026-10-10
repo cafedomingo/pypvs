@@ -15,7 +15,15 @@ class PVSProbeFailed(PVSError):
 
 
 class PVSCommunicationError(PVSError):
-    """Exception raised when the PVS communication fails."""
+    """Exception raised when the PVS communication fails.
+
+    `status` is the HTTP status the PVS answered with, or None when it was
+    not reached (timeout, connection error).
+    """
+
+    def __init__(self, message: str = "", status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class PVSDataFormatError(PVSError):
