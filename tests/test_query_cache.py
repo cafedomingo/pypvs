@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import pytest
 
 import pypvs.pvs as pvs_module
-from pypvs.exceptions import PVSCommunicationError
+from pypvs.exceptions import PVSCommunicationError, PVSDataFormatError
 from pypvs.pvs import PVS, query_cache_id
 
 INVERTERS = {
@@ -22,8 +23,9 @@ class FakeVarserver:
     matched when it was created and reads their current values; an unknown
     cache id is 400; a restart forgets every cache."""
 
-    def __init__(self, variables):
+    def __init__(self, variables, supports_cache=True):
         self.vars = dict(variables)
+        self.supports_cache = supports_cache
         self.caches: dict[str, list[str]] = {}
         self.requests: list[dict] = []
 
@@ -38,6 +40,8 @@ class FakeVarserver:
 
     async def __call__(self, endpoint, params=None):
         self.requests.append(dict(params))
+        if "cache" in params and not self.supports_cache:
+            raise PVSCommunicationError("HTTP 400: 0x0040", status=400)
         if "match" in params:
             names = [n for n in self.vars if params["match"] in n]
             if not names:
@@ -142,6 +146,61 @@ def test_caching_can_be_turned_off():
     assert server.requests == [{"match": "/sys/devices/inverter/"}] * 2
 
 
-def test_cache_ids_are_stable_and_safe():
-    assert query_cache_id("/sys/devices/inverter/") == "pypvs_sys_devices_inverter"
-    assert query_cache_id("/sys/livedata") == "pypvs_sys_livedata"
+def test_cache_ids_are_stable_safe_and_distinct():
+    cid = query_cache_id("/sys/devices/inverter/")
+    assert cid == query_cache_id("/sys/devices/inverter/")
+    assert re.fullmatch(r"pypvs_sys_devices_inverter_[0-9a-f]{8}", cid)
+    # matches that slug the same still get their own cache
+    assert cid != query_cache_id("/sys/devices/inverter")
+    assert query_cache_id("a/b") != query_cache_id("a_b")
+
+
+def test_probing_rebuilds_the_cache():
+    """At sunrise a cache can be built while only some inverters have
+    reported; a re-probe must see the PVS as it is now, not that name set."""
+    server = FakeVarserver({"/sys/devices/inverter/0/p3phsumKw": "0.1"})  # no sn yet
+    pvs = make_pvs(server)
+    query(pvs)
+    server.vars.update(INVERTERS)
+    pvs.reset_query_caches()  # what probe() does first
+    assert "/sys/devices/inverter/0/sn" in query(pvs)
+
+
+def test_an_empty_cached_read_rebuilds_the_cache():
+    server = FakeVarserver(INVERTERS)
+    pvs = make_pvs(server)
+    query(pvs)
+    for name in INVERTERS:
+        del server.vars[name]  # devices vanished but the cache survived
+    server.vars["/sys/devices/inverter/1/sn"] = "B"
+    assert query(pvs) == {"/sys/devices/inverter/1/sn": "B"}
+
+
+def test_a_pvs_that_rejects_cache_ids_still_answers():
+    server = FakeVarserver(INVERTERS, supports_cache=False)
+    pvs = make_pvs(server)
+    assert query(pvs) == INVERTERS
+    assert query(pvs) == INVERTERS
+    assert server.requests[-1] == {"match": "/sys/devices/inverter/"}  # no retry
+    with pytest.raises(PVSCommunicationError):
+        query(pvs, "/sys/devices/ess/")  # nothing matches: still an error
+
+
+def test_named_reads_parse_and_reject_malformed_answers():
+    server = FakeVarserver(METER)
+    pvs = make_pvs(server)
+
+    async def answer(endpoint, params=None):
+        names = params["name"].split(",")
+        return server.answer([n for n in names if n in server.vars])
+
+    pvs.getVarserver = answer
+    names = list(METER)
+    assert asyncio.run(pvs.getVarserverVarsByName(names)) == METER
+
+    async def malformed(endpoint, params=None):
+        return {"count": 1}
+
+    pvs.getVarserver = malformed
+    with pytest.raises(PVSDataFormatError):
+        asyncio.run(pvs.getVarserverVarsByName(names))

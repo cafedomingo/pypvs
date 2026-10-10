@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any
 
-from ..const import VARS_MATCH_INFO, SupportedFeatures
+from ..const import HTTP_BAD_REQUEST, VARS_MATCH_INFO, SupportedFeatures
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
 from ..models.gateway import (
     CORE_VARS,
@@ -16,7 +16,6 @@ from .base import PVSUpdater
 
 _LOGGER = logging.getLogger(__name__)
 
-HTTP_BAD_REQUEST = 400
 # Extras (network, cloud, battery config, board info) change rarely, so they
 # are fetched every few minutes rather than on every poll.
 EXTRAS_REFRESH_S = 300
@@ -71,14 +70,18 @@ class PVSGatewayUpdater(PVSUpdater):
         self._unsupported_vars.pop(name, None)
         return value
 
-    def _wanted(self, names: tuple[str, ...], now: float) -> list[str]:
-        """Names not currently known to be unsupported."""
-        return [
-            n
-            for n in names
-            if (marked := self._unsupported_vars.get(n)) is None
-            or now - marked >= UNSUPPORTED_RETRY_S
-        ]
+    def _split(self, names: tuple[str, ...], now: float) -> tuple[list[str], list[str]]:
+        """(known, retry): names never found unsupported, which can be read in
+        one batch, and unsupported ones due another try, which are read one by
+        one so a still-missing name can't sink the batch."""
+        known, retry = [], []
+        for name in names:
+            marked = self._unsupported_vars.get(name)
+            if marked is None:
+                known.append(name)
+            elif now - marked >= UNSUPPORTED_RETRY_S:
+                retry.append(name)
+        return known, retry
 
     async def _read_batch(self, names: list[str]) -> dict[str, Any] | None:
         """Read `names` in one request. Returns None when the batch can't be
@@ -104,19 +107,23 @@ class PVSGatewayUpdater(PVSUpdater):
         now = time.monotonic()
         sys_info: dict[str, Any] = {}
 
-        # one request for every name; one by one only when the batch fails
-        names = self._wanted(CORE_VARS, now)
-        batch = await self._read_batch(names)
-        if batch is not None:
+        # one request for the known names; one by one when the batch fails
+        # or leaves out a required name, and for retries
+        known, retry = self._split(CORE_VARS, now)
+        batch = await self._read_batch(known)
+        required = [n for n in known if n not in OPTIONAL_CORE_VARS]
+        if batch is not None and all(n in batch for n in required):
             sys_info.update(batch)
+            singles = retry
         else:
-            for name in names:
-                if name in OPTIONAL_CORE_VARS:
-                    value = await self._read(name, now)
-                    if value is not _MISSING:
-                        sys_info[name] = value
-                else:
-                    sys_info[name] = await self._request_var(name)
+            singles = known + retry
+        for name in singles:
+            if name in OPTIONAL_CORE_VARS:
+                value = await self._read(name, now)
+                if value is not _MISSING:
+                    sys_info[name] = value
+            else:
+                sys_info[name] = await self._request_var(name)
 
         if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
             model = sys_info.get("/sys/info/model")
@@ -133,17 +140,19 @@ class PVSGatewayUpdater(PVSUpdater):
         last value. Only an unreachable PVS (no HTTP status) ends the refresh
         early, so a slow PVS costs one timeout rather than one per variable."""
         self._extras_at = now
-        wanted = self._wanted(names, now)
+        known, retry = self._split(names, now)
         try:
-            batch = await self._read_batch(wanted)
+            batch = await self._read_batch(known)
         except PVSError as e:
             _LOGGER.debug("Keeping previous gateway extras: %s", e)
             return
         if batch is not None:
-            for name in wanted:
+            for name in known:
                 self._record_extra(name, batch.get(name, _MISSING))
-            return
-        for name in wanted:
+            singles = retry
+        else:
+            singles = known + retry
+        for name in singles:
             try:
                 value = await self._read(name, now)
             except PVSCommunicationError as e:

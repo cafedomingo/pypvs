@@ -1,12 +1,13 @@
 import logging
 import re
 import time
+import zlib
 from collections.abc import Callable
 from typing import Any
 
 import aiohttp
 
-from .const import VAR_UPTIME, SupportedFeatures
+from .const import HTTP_BAD_REQUEST, VAR_UPTIME, SupportedFeatures
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -26,14 +27,25 @@ from .updaters.meter import PVSProductionMetersUpdater
 from .updaters.production_inverters import PVSProductionInvertersUpdater
 from .updaters.transfer_switch import PVSTransferSwitchUpdater
 
-HTTP_BAD_REQUEST = 400
-QUERY_CACHE_TTL_S = 3600
+# The cache holds the matched names, so rebuild it often enough that devices
+# appearing (inverters waking after the PVS's nightly restart) show up soon.
+QUERY_CACHE_TTL_S = 600
 
 
 def query_cache_id(match: str) -> str:
-    """A stable PVS-side cache id for a match expression, e.g.
-    "/sys/devices/inverter/" -> "pypvs_sys_devices_inverter"."""
-    return "pypvs_" + "_".join(re.findall(r"[A-Za-z0-9]+", match))
+    """A stable PVS-side cache id for a match expression, unique per match,
+    e.g. "/sys/devices/inverter/" -> "pypvs_sys_devices_inverter_1a2b3c4d"."""
+    slug = "_".join(re.findall(r"[A-Za-z0-9]+", match))
+    return f"pypvs_{slug}_{zlib.crc32(match.encode()):08x}"
+
+
+def _values(response_data: Any) -> dict[str, Any]:
+    try:
+        return {item["name"]: item["value"] for item in response_data["values"]}
+    except (KeyError, TypeError) as err:
+        raise PVSDataFormatError(
+            f"Cannot construct dictionary from response {response_data}"
+        ) from err
 
 
 UPDATERS: list[type["PVSUpdater"]] = [
@@ -81,6 +93,8 @@ class PVS:
         self._use_query_cache = use_query_cache
         # match -> monotonic time its PVS-side cache was (re)created
         self._query_caches: dict[str, float] = {}
+        # matches whose cache= the PVS rejected while the plain match works
+        self._uncacheable: set[str] = set()
         self._common_properties: CommonProperties = CommonProperties()
 
         self._firmware = PVSFirmware(self.getVarserverVar)
@@ -120,81 +134,71 @@ class PVS:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
 
     async def getVarserverVar(self, varname):
-        response_data = await self.getVarserver("/vars", params={"name": varname})
-
-        try:
-            # sample return:
-            # {
-            #     "count": 1,
-            #     "values": [
-            #     {
-            #         "name": "/sys/info/uptime",
-            #         "value": "106408.20"
-            #     }
-            #     ]
-            # }
-            value = response_data["values"][0]["value"]
-            _LOGGER.debug(f"Received {varname}: {value}")
-            return response_data["values"][0]["value"]
-        except (KeyError, IndexError, TypeError) as err:
+        values = await self.getVarserverVarsByName([varname])
+        if varname not in values:
             raise PVSDataFormatError(
-                f"Cannot extract {varname} from response {response_data}"
-            ) from err
+                f"Cannot extract {varname}; the PVS returned {values}"
+            )
+        _LOGGER.debug("Received %s: %s", varname, values[varname])
+        return values[varname]
 
     async def getVarserverVarsByName(self, names: list[str]) -> dict[str, Any]:
         """Read several variables in one request. The PVS answers 400 for the
         whole request if any of the names is unknown."""
-        response_data = await self.getVarserver(
-            "/vars", params={"name": ",".join(names)}
+        return _values(
+            await self.getVarserver("/vars", params={"name": ",".join(names)})
         )
-        try:
-            return {item["name"]: item["value"] for item in response_data["values"]}
-        except (KeyError, TypeError) as err:
-            raise PVSDataFormatError(
-                f"Cannot construct dictionary from response {response_data}"
-            ) from err
 
     async def getVarserverVars(self, match):
-        response_data = await self._match_query(match)
+        values = _values(await self._match_query(match))
+        _LOGGER.debug("Received %d values for %s", len(values), match)
+        return values
 
-        try:
-            # construct a new dictionary with the varname
-            # as the key and the value as the value
-            value_dict = {}
-            for item in response_data["values"]:
-                value_dict[item["name"]] = item["value"]
-            _LOGGER.debug(f"Received {len(value_dict)} values: {value_dict}")
-            return value_dict
-        except (KeyError, TypeError) as err:
-            raise PVSDataFormatError(
-                f"Cannot construct dictionary from response {response_data}"
-            ) from err
+    def reset_query_caches(self) -> None:
+        """Forget the PVS-side caches so the next match queries rebuild them."""
+        self._query_caches.clear()
 
     async def _match_query(self, match: str) -> Any:
         """Run a match query, through a PVS-side cache when enabled.
 
-        The cache holds the set of variable names (values are read live), so it
-        is rebuilt every QUERY_CACHE_TTL_S to pick up devices that appeared, and
-        whenever reading it fails with 400 (e.g. the PVS restarted and lost
-        it). If rebuilding also answers 400, nothing matches and the error is
-        raised as with an uncached match.
+        The cache holds the set of matched names (values are read live), so it
+        is rebuilt every QUERY_CACHE_TTL_S and on every probe to pick up devices
+        that appeared, and when a read fails with 400 (the PVS forgets its
+        caches when it restarts) or comes back empty. If the PVS rejects the
+        cache parameter but answers the plain match, caching is turned off for
+        that match. A plain match that answers 400 means nothing matches and is
+        raised as before.
         """
-        if not self._use_query_cache:
+        if not self._use_query_cache or match in self._uncacheable:
             return await self.getVarserver("/vars", params={"match": match})
         cache_id = query_cache_id(match)
         now = time.monotonic()
         created = self._query_caches.get(match)
         if created is not None and now - created < QUERY_CACHE_TTL_S:
             try:
-                return await self.getVarserver("/vars", params={"cache": cache_id})
+                data = await self.getVarserver("/vars", params={"cache": cache_id})
             except PVSCommunicationError as err:
                 if err.status != HTTP_BAD_REQUEST:
                     raise
                 _LOGGER.debug("Query cache %s is gone; recreating it", cache_id)
+            else:
+                if isinstance(data, dict) and data.get("values"):
+                    return data
+                _LOGGER.debug("Query cache %s came back empty; recreating it", cache_id)
         self._query_caches.pop(match, None)
-        data = await self.getVarserver(
-            "/vars", params={"match": match, "cache": cache_id}
-        )
+        try:
+            data = await self.getVarserver(
+                "/vars", params={"match": match, "cache": cache_id}
+            )
+        except PVSCommunicationError as err:
+            if err.status != HTTP_BAD_REQUEST:
+                raise
+            # "nothing matches" and "cache not supported" look the same; the
+            # plain match tells them apart (and raises 400 if nothing matches)
+            data = await self.getVarserver("/vars", params={"match": match})
+            _LOGGER.debug("PVS rejected cache=%s; not caching %s", cache_id, match)
+            self._uncacheable.add(match)
+            return data
         self._query_caches[match] = now
         return data
 
@@ -221,6 +225,8 @@ class PVS:
 
     async def probe(self) -> None:
         """Probe for model and supported features."""
+        # probe against a fresh view of the PVS, not cached name sets
+        self.reset_query_caches()
         supported_features = SupportedFeatures(0)
         updaters: list[PVSUpdater] = []
         self._common_properties.reset_probe_properties()
@@ -289,6 +295,8 @@ class PVS:
     @host.setter
     def host(self, value: str | None):
         self._host = value
+        self._query_caches.clear()
+        self._uncacheable.clear()
         self.update_clients()
 
     @property

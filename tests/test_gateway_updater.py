@@ -372,3 +372,35 @@ def test_a_timeout_on_the_extras_batch_keeps_their_last_values(monkeypatch):
     gw = run(updater)
     assert gw.board_type == "A0K LIB 1.0 PSoC5"
     assert gw.uptime_s == 81436.77
+
+
+def test_a_batch_missing_a_required_name_falls_back():
+    """A 200 that leaves out a required variable must not pass silently."""
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    real = pvs.request_named_vars
+
+    async def short(names):
+        values = await real(names)
+        values.pop("/sys/info/uptime", None)
+        return values
+
+    pvs.request_named_vars = short
+    gw = run(pvs.updater(batched=True))
+    assert gw.uptime_s == 81436.77
+    assert "/sys/info/uptime" in pvs.calls  # read on its own
+
+
+def test_a_retried_name_is_read_on_its_own(monkeypatch):
+    """When an unsupported name is due its retry, it must not sink the batch
+    of names that work."""
+    clock = Clock(monkeypatch)
+    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/pvs/flashwear_type_b"}
+    pvs = FakePVS({**values, **EXTRAS, **NET})
+    updater = pvs.updater(batched=True)
+    run(updater)
+    clock.now += gateway_module.UNSUPPORTED_RETRY_S
+    pvs.calls.clear()
+    pvs.batches.clear()
+    run(updater)
+    assert pvs.calls == ["/sys/pvs/flashwear_type_b"]
+    assert all("/sys/pvs/flashwear_type_b" not in batch for batch in pvs.batches)
