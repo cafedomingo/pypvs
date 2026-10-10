@@ -1,7 +1,9 @@
-import base64
+import asyncio
 import logging
 import time
 from typing import Callable
+
+import aiohttp
 
 from .const import VAR_UPTIME, SupportedFeatures
 
@@ -90,6 +92,8 @@ class PVS:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
         except PVSFCGIClientPostError as err:
             raise PVSCommunicationError(f"POST request failed: {err}") from err
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise PVSCommunicationError(f"Cannot reach the PVS: {err}") from err
         except Exception as err:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
 
@@ -110,10 +114,10 @@ class PVS:
             value = response_data["values"][0]["value"]
             _LOGGER.debug(f"Received {varname}: {value}")
             return response_data["values"][0]["value"]
-        except KeyError:
+        except (KeyError, IndexError, TypeError) as err:
             raise PVSDataFormatError(
-                "Cannot extract value from response {response_data}"
-            )
+                f"Cannot extract {varname} from response {response_data}"
+            ) from err
 
     async def getVarserverVars(self, match):
         response_data = await self.getVarserver("/vars", params={"match": match})
@@ -126,10 +130,10 @@ class PVS:
                 value_dict[item["name"]] = item["value"]
             _LOGGER.debug(f"Received {len(value_dict)} values: {value_dict}")
             return value_dict
-        except KeyError:
+        except (KeyError, TypeError) as err:
             raise PVSDataFormatError(
-                "Cannot construct dictionary from response {response_data}"
-            )
+                f"Cannot construct dictionary from response {response_data}"
+            ) from err
 
     async def discover(self) -> None:
         """Discover the PVS and its capabilities."""
@@ -144,27 +148,8 @@ class PVS:
             # set the password for the PVS
             self.fcgi_client.auth_password = auth_password
 
-        try:
-            await self.getVarserverVar(VAR_UPTIME)
-        except PVSFCGIClientPostError:
-            raise PVSAuthenticationError("Login failed on setup")
-
-    def generate_client_reference_id(self):
-        """Generate a client reference id according to the specified rules."""
-
-        # cannot generate without a serial number
-        if not self._firmware.serial:
-            raise PVSAuthenticationError(
-                "Cannot generate client reference id without a serial number"
-            )
-
-        # generate the client_reference_id
-        client_reference_id = base64.b64encode(
-            f"{self._firmware.serial}:{self._token_secret}".encode()
-        ).decode()
-        # finally apply a workaround for the base64
-        # encoding to be accepter by the server
-        return client_reference_id.replace("=", "-")
+        # A rejected login surfaces here as PVSAuthenticationError.
+        await self.getVarserverVar(VAR_UPTIME)
 
     async def validate(self) -> bool:
         # just try to read some variables to see if the connection to the PVS is ok

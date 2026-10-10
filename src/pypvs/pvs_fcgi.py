@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,9 +66,10 @@ class PVSFCGIClient:
         # TODO: Ignore certificate errors for now
         async with self.session.get(login_url, headers=headers, ssl=False) as response:
             if response.status != 200:
+                body = await response.text()
                 raise PVSFCGIClientLoginError(
                     f"Login failed with status code: {response.status}"
-                    f" and response: {response.text}"
+                    f" and response: {body[:200]}"
                 )
 
             self.cookies = response.cookies
@@ -82,10 +84,10 @@ class PVSFCGIClient:
 
             if response.status == 200:
                 _LOGGER.debug("POST request successful!")
-                import json
                 return json.loads(response_body)
-            elif response.status in [401, 500]:
-                # Session expired or invalid — caller should re-authenticate
+            elif response.status == 401:
+                # Session expired or invalid (the PVS answers 401, errorcode
+                # 0x0012) — caller should re-authenticate
                 _LOGGER.debug(
                     "PVS returned HTTP %s for %s — body: %s",
                     response.status,
@@ -96,7 +98,8 @@ class PVSFCGIClient:
                     f"HTTP {response.status}: {response_body[:200]}"
                 )
             else:
-                # 400 or other status — not an auth issue, don't retry login
+                # 400 (bad request) or a server error — not an auth issue,
+                # don't retry login
                 _LOGGER.debug(
                     "PVS returned HTTP %s for %s — body: %s",
                     response.status,
@@ -128,7 +131,11 @@ class PVSFCGIClient:
             )
 
         url = f"{self._pvs_url}{endpoint}"
-        payload_str = "".join([f"{key}={value}" for key, value in params.items()])
+        # Not URL-encoded: the PVS takes raw paths and set=name=value pairs,
+        # e.g. set=/sys/telemetryws/enable=1.
+        payload_str = "&".join(
+            f"{key}={value}" for key, value in (params or {}).items()
+        )
         _LOGGER.debug("POST request to %s with payload: %s", url, payload_str)
 
         # Proactively login if we don't have a session yet
