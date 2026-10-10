@@ -1,6 +1,8 @@
 import logging
+import re
 import time
 from collections.abc import Callable
+from typing import Any
 
 import aiohttp
 
@@ -23,6 +25,16 @@ from .updaters.gateway import PVSGatewayUpdater
 from .updaters.meter import PVSProductionMetersUpdater
 from .updaters.production_inverters import PVSProductionInvertersUpdater
 from .updaters.transfer_switch import PVSTransferSwitchUpdater
+
+HTTP_BAD_REQUEST = 400
+QUERY_CACHE_TTL_S = 3600
+
+
+def query_cache_id(match: str) -> str:
+    """A stable PVS-side cache id for a match expression, e.g.
+    "/sys/devices/inverter/" -> "pypvs_sys_devices_inverter"."""
+    return "pypvs_" + "_".join(re.findall(r"[A-Za-z0-9]+", match))
+
 
 UPDATERS: list[type["PVSUpdater"]] = [
     PVSGatewayUpdater,
@@ -50,8 +62,25 @@ def get_updaters() -> list[type[PVSUpdater]]:
 
 
 class PVS:
-    def __init__(self, session, host=None, user="ssm_owner", password=None):
+    def __init__(
+        self,
+        session,
+        host=None,
+        user="ssm_owner",
+        password=None,
+        use_query_cache: bool = True,
+    ):
+        """
+        Args:
+            use_query_cache: run match queries once with a PVS-side cache id and
+                re-read the cache afterwards, as doc/LocalAPI.md recommends for
+                frequent match queries (cheaper for the PVS, ~5x faster on a
+                PVS6 with SunVault). Pass False to always run the match.
+        """
         self._host: str | None = None
+        self._use_query_cache = use_query_cache
+        # match -> monotonic time its PVS-side cache was (re)created
+        self._query_caches: dict[str, float] = {}
         self._common_properties: CommonProperties = CommonProperties()
 
         self._firmware = PVSFirmware(self.getVarserverVar)
@@ -113,7 +142,7 @@ class PVS:
             ) from err
 
     async def getVarserverVars(self, match):
-        response_data = await self.getVarserver("/vars", params={"match": match})
+        response_data = await self._match_query(match)
 
         try:
             # construct a new dictionary with the varname
@@ -127,6 +156,34 @@ class PVS:
             raise PVSDataFormatError(
                 f"Cannot construct dictionary from response {response_data}"
             ) from err
+
+    async def _match_query(self, match: str) -> Any:
+        """Run a match query, through a PVS-side cache when enabled.
+
+        The cache holds the set of variable names (values are read live), so it
+        is rebuilt every QUERY_CACHE_TTL_S to pick up devices that appeared, and
+        whenever reading it fails with 400 (e.g. the PVS restarted and lost
+        it). If rebuilding also answers 400, nothing matches and the error is
+        raised as with an uncached match.
+        """
+        if not self._use_query_cache:
+            return await self.getVarserver("/vars", params={"match": match})
+        cache_id = query_cache_id(match)
+        now = time.monotonic()
+        created = self._query_caches.get(match)
+        if created is not None and now - created < QUERY_CACHE_TTL_S:
+            try:
+                return await self.getVarserver("/vars", params={"cache": cache_id})
+            except PVSCommunicationError as err:
+                if err.status != HTTP_BAD_REQUEST:
+                    raise
+                _LOGGER.debug("Query cache %s is gone; recreating it", cache_id)
+        self._query_caches.pop(match, None)
+        data = await self.getVarserver(
+            "/vars", params={"match": match, "cache": cache_id}
+        )
+        self._query_caches[match] = now
+        return data
 
     async def discover(self) -> None:
         """Discover the PVS and its capabilities."""
