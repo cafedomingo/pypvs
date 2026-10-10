@@ -69,8 +69,8 @@ class PVS:
         )
         self.host = host
 
-    def update_clients(self):
-        self.fcgi_client.pvs_url = f"https://{self.host}"
+    def update_clients(self) -> None:
+        self.fcgi_client.pvs_url = f"https://{self.host}" if self.host else None
 
     async def getVarserver(self, endpoint, params=None):
         try:
@@ -175,8 +175,8 @@ class PVS:
         """Update data."""
         if not self._supported_features:
             await self.probe()
-            assert self._supported_features is not None  # set by probe()
-            if not (self._supported_features & SupportedFeatures.INVERTERS):
+            features = self._supported_features or SupportedFeatures(0)
+            if not (features & SupportedFeatures.INVERTERS):
                 # start the re-probe backoff from this probe
                 self._inverter_last_reprobe = time.monotonic()
         elif not (self._supported_features & SupportedFeatures.INVERTERS):
@@ -218,8 +218,7 @@ class PVS:
     @host.setter
     def host(self, value: str | None):
         self._host = value
-        if self._host:
-            self.update_clients()
+        self.update_clients()
 
     @property
     def serial_number(self) -> str | None:
@@ -244,6 +243,9 @@ class PVS:
 
         Returns:
             PVSWebSocket instance with enable callback wired up
+
+        Raises:
+            ValueError: if no host is set
         """
         if not self._host:
             raise ValueError("PVS host must be set before creating a websocket")

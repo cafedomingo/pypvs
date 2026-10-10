@@ -32,7 +32,7 @@ class PVSFCGIClient:
         return self._pvs_url
 
     @pvs_url.setter
-    def pvs_url(self, value: str):
+    def pvs_url(self, value: str | None):
         self._pvs_url = value
         _LOGGER.debug(f"PVS URL set to {self._pvs_url}")
 

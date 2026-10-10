@@ -403,3 +403,11 @@ def test_missing_ct_scale_factor_is_none():
     """A missing ctSclFctr is not reported as a fabricated 1.0."""
     data = {k: v for k, v in METER_NET_ANON.items() if k != "ctSclFctr"}
     assert PVSMeter.from_varserver(data).ct_scale_factor is None
+
+
+def test_str_var_defaults():
+    from pypvs.models.varserver_coerce import str_var
+
+    assert str_var({}, "k") == ""
+    assert str_var({}, "k", None) is None
+    assert str_var({"k": 5}, "k", None) == "5"
