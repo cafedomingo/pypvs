@@ -2,19 +2,77 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from .varserver_coerce import float_var, int_var, str_var
 
-INTERFACES = ("wan0", "wan1", "sta0", "wwan0")
+VAR_FWREV = "/sys/info/fwrev"
+VAR_BOARDTYPE = "/sys/info/boardtype"
+VAR_ACTIVE_INTERFACE = "/sys/info/active_interface"
+VAR_USB_ERASE_COUNT = "/sys/pvs/usb_erase_count"
+VAR_BROADBAND_CONNECTED = "/sys/toggle_cell/broadband_connected"
+VAR_CELL_CONNECTED = "/sys/toggle_cell/cell_connected"
+VAR_LOW_DATA_MODE = "/sys/toggle_cell/low_data_mode"
 ESS_RESERVE_SOC = "/ess/config/dcm/control_param/min_customer_soc"
 ESS_CONTROL_MODE = "/ess/config/dcm/mode_param/control_mode"
+VAR_FLASHWEAR = "/sys/pvs/flashwear_type_b"
+
+#: read on every poll; only flashwear may be missing (PVS6-only)
+CORE_VARS = (
+    "/sys/info/sys_type",
+    "/sys/info/model",
+    "/sys/info/hwrev",
+    "/sys/info/sw_rev",
+    "/sys/info/uptime",
+    "/sys/info/lmac",
+    "/sys/info/ram_usage",
+    "/sys/info/flash_usage",
+    "/sys/info/cpu_usage",
+    VAR_FLASHWEAR,
+)
+OPTIONAL_CORE_VARS = frozenset({VAR_FLASHWEAR})
+#: read every few minutes, all optional
+EXTRA_VARS = (
+    VAR_FWREV,
+    VAR_BOARDTYPE,
+    VAR_ACTIVE_INTERFACE,
+    VAR_USB_ERASE_COUNT,
+    VAR_BROADBAND_CONNECTED,
+    VAR_CELL_CONNECTED,
+    VAR_LOW_DATA_MODE,
+    ESS_RESERVE_SOC,
+    ESS_CONTROL_MODE,
+)
+#: /net/{interface}/state for whatever interfaces the PVS has
+NET_MATCH = "/net/"
+_NET_STATE = re.compile(r"^/net/([^/]+)/state$")
+_PLACEHOLDERS = {"", "TBD"}
+
+
+def _text(data: dict[str, Any], key: str) -> str | None:
+    value = str_var(data, key, None)
+    if value is None:
+        return None
+    value = value.strip()
+    return None if value in _PLACEHOLDERS else value
 
 
 def _flag(data: dict[str, Any], key: str) -> bool | None:
-    value = int_var(data, key)
-    return None if value is None else bool(value)
+    value = float_var(data, key)
+    return None if value is None else value != 0
+
+
+def _count(data: dict[str, Any], key: str) -> int | None:
+    """An unsigned counter, decimal or 0x-prefixed hex."""
+    value = _text(data, key)
+    if value is None:
+        return None
+    try:
+        return int(value, 16) if value.lower().startswith("0x") else int(value)
+    except ValueError:
+        return None
 
 
 @dataclass(slots=True)
@@ -37,11 +95,12 @@ class PVSGateway:
     board_type: str | None = None
     usb_erase_count: int | None = None
     active_interface: str | None = None
-    #: link state per interface (wan0, wan1, sta0, wwan0), e.g. "online"
+    #: link state per interface as the PVS reports it ("online", "ready",
+    #: "N/A", ...); interface names differ between PVS5 and PVS6
     interface_states: dict[str, str] = field(default_factory=dict)
     broadband_connected: bool | None = None
     cell_connected: bool | None = None
-    low_data_mode: bool | None = None
+    low_data_mode: int | None = None
     #: battery backup reserve as a 0-1 ratio of customer state of charge
     ess_reserve_soc: float | None = None
     ess_control_mode: str | None = None
@@ -56,7 +115,7 @@ class PVSGateway:
         # flashwear_type_b is reported as a hex string (e.g. "0x02")
         # The decimal value is multiplied by 10 to get a percentage.
         # Only available on PVS6; returns None when absent.
-        raw_flashwear = str_var(data, "/sys/pvs/flashwear_type_b", None)
+        raw_flashwear = str_var(data, VAR_FLASHWEAR, None)
         flashwear: int | None = None
         if raw_flashwear is not None:
             try:
@@ -75,19 +134,18 @@ class PVSGateway:
             flash_usage_percent=int_var(data, "/sys/info/flash_usage"),
             cpu_usage_percent=int_var(data, "/sys/info/cpu_usage"),
             flashwear_type_b_percent=flashwear,
-            firmware_revision=str_var(data, "/sys/info/fwrev", None) or None,
-            board_type=str_var(data, "/sys/info/boardtype", None) or None,
-            usb_erase_count=int_var(data, "/sys/pvs/usb_erase_count"),
-            active_interface=str_var(data, "/sys/info/active_interface", None),
+            firmware_revision=_text(data, VAR_FWREV),
+            board_type=_text(data, VAR_BOARDTYPE),
+            usb_erase_count=_count(data, VAR_USB_ERASE_COUNT),
+            active_interface=_text(data, VAR_ACTIVE_INTERFACE),
             interface_states={
-                name: state
-                for name in INTERFACES
-                if (state := str_var(data, f"/net/{name}/state", None))
-                and state != "N/A"
+                m.group(1): str(value).strip()
+                for key, value in data.items()
+                if (m := _NET_STATE.match(key)) and value is not None
             },
-            broadband_connected=_flag(data, "/sys/toggle_cell/broadband_connected"),
-            cell_connected=_flag(data, "/sys/toggle_cell/cell_connected"),
-            low_data_mode=_flag(data, "/sys/toggle_cell/low_data_mode"),
+            broadband_connected=_flag(data, VAR_BROADBAND_CONNECTED),
+            cell_connected=_flag(data, VAR_CELL_CONNECTED),
+            low_data_mode=int_var(data, VAR_LOW_DATA_MODE),
             ess_reserve_soc=float_var(data, ESS_RESERVE_SOC),
-            ess_control_mode=str_var(data, ESS_CONTROL_MODE, None),
+            ess_control_mode=_text(data, ESS_CONTROL_MODE),
         )
