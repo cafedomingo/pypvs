@@ -18,12 +18,12 @@ class PVSTransferSwitch:
     last_report_date: int
     mid_state: str = ""
     pvd1_state: str = ""
-    temperature_c: float = 0.0
-    v1n_grid_v: float = 0.0
-    v1n_v: float = 0.0
-    v2n_grid_v: float = 0.0
-    v2n_v: float = 0.0
-    v_supply_v: float = 0.0
+    temperature_c: float | None = None
+    v1n_grid_v: float | None = None
+    v1n_v: float | None = None
+    v2n_grid_v: float | None = None
+    v2n_v: float | None = None
+    v_supply_v: float | None = None
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> "PVSTransferSwitch":

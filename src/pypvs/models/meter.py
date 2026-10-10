@@ -16,25 +16,25 @@ class PVSMeter:
     serial_number: str
     model: str
     last_report_date: int
-    power_3ph_kw: float
-    voltage_3ph_v: float
-    current_3ph_a: float
-    freq_hz: float
-    lte_3ph_kwh: float
-    ct_scale_factor: float
-    i1_a: float
-    i2_a: float
-    neg_lte_kwh: float
-    net_lte_kwh: float
-    p1_kw: float
-    p2_kw: float
-    pos_lte_kwh: float
-    q3phsum_kvar: float
-    s3phsum_kva: float
-    tot_pf_ratio: float
-    v12_v: float
-    v1n_v: float
-    v2n_v: float
+    power_3ph_kw: float | None
+    voltage_3ph_v: float | None
+    current_3ph_a: float | None
+    freq_hz: float | None
+    lte_3ph_kwh: float | None
+    ct_scale_factor: float | None
+    i1_a: float | None
+    i2_a: float | None
+    neg_lte_kwh: float | None
+    net_lte_kwh: float | None
+    p1_kw: float | None
+    p2_kw: float | None
+    pos_lte_kwh: float | None
+    q3phsum_kvar: float | None
+    s3phsum_kva: float | None
+    tot_pf_ratio: float | None
+    v12_v: float | None
+    v1n_v: float | None
+    v2n_v: float | None
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSMeter:
@@ -59,7 +59,7 @@ class PVSMeter:
             current_3ph_a=float_var(data, "i3phsumA"),
             freq_hz=float_var(data, "freqHz"),
             lte_3ph_kwh=float_var(data, "ltea3phsumKwh"),
-            ct_scale_factor=float_var(data, "ctSclFctr", 1.0),
+            ct_scale_factor=float_var(data, "ctSclFctr"),
             i1_a=float_var(data, "i1A"),
             i2_a=float_var(data, "i2A"),
             neg_lte_kwh=float_var(data, "negLtea3phsumKwh"),

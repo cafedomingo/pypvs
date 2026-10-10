@@ -16,11 +16,11 @@ class PVSGateway:
     pvs_type: str
     hardware_version: str
     software_version: str
-    uptime_s: float
+    uptime_s: float | None
     mac: str
-    ram_usage_percent: int
-    flash_usage_percent: int
-    cpu_usage_percent: int
+    ram_usage_percent: int | None
+    flash_usage_percent: int | None
+    cpu_usage_percent: int | None
     flashwear_type_b_percent: int | None
 
     @classmethod

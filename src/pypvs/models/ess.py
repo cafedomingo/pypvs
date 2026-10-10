@@ -20,23 +20,23 @@ class PVSESS:
     serial_number: str
     model: str
     last_report_date: int
-    power_3ph_kw: float
-    neg_lte_kwh: float
-    pos_lte_kwh: float
-    v1n_v: float
-    v2n_v: float
+    power_3ph_kw: float | None
+    neg_lte_kwh: float | None
+    pos_lte_kwh: float | None
+    v1n_v: float | None
+    v2n_v: float | None
     op_mode: str = ""
-    soc_val: float = 0.0
-    customer_soc_val: float = 0.0
-    soh_val: int = 0
-    t_invtr_degc: float = 0.0
-    v_batt_v: float = 0.0
-    chrg_limit_pmax_kw: float = 0.0
-    dischrg_lim_pmax_kw: float = 0.0
-    max_t_batt_cell_degc: float = 0.0
-    min_t_batt_cell_degc: float = 0.0
-    max_v_batt_cell_v: float = 0.0
-    min_v_batt_cell_v: float = 0.0
+    soc_val: float | None = None
+    customer_soc_val: float | None = None
+    soh_val: float | None = None
+    t_invtr_degc: float | None = None
+    v_batt_v: float | None = None
+    chrg_limit_pmax_kw: float | None = None
+    dischrg_lim_pmax_kw: float | None = None
+    max_t_batt_cell_degc: float | None = None
+    min_t_batt_cell_degc: float | None = None
+    max_v_batt_cell_v: float | None = None
+    min_v_batt_cell_v: float | None = None
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSESS:

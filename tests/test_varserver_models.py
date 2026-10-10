@@ -398,3 +398,9 @@ def test_missing_lifetime_counter_is_not_zero():
     assert inv.lte_kwh is None
     meter = PVSMeter.from_varserver({**METER_NET_ANON, "netLtea3phsumKwh": ""})
     assert meter.net_lte_kwh is None
+
+
+def test_missing_ct_scale_factor_is_none():
+    """A missing ctSclFctr is not reported as a fabricated 1.0."""
+    data = {k: v for k, v in METER_NET_ANON.items() if k != "ctSclFctr"}
+    assert PVSMeter.from_varserver(data).ct_scale_factor is None
