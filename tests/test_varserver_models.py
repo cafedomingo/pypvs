@@ -173,7 +173,7 @@ LIVEDATA_WITH_ESS_ANON = {
 
 
 def test_inverter_from_varserver_omitted_float_fields():
-    """Missing numeric keys (e.g. tHtsnkDegc) must not raise TypeError."""
+    """Missing numeric keys (e.g. tHtsnkDegc) come back as None, not 0."""
     inv = PVSInverter.from_varserver(
         {
             "sn": "ABC",
@@ -184,15 +184,15 @@ def test_inverter_from_varserver_omitted_float_fields():
     assert inv.serial_number == "ABC"
     assert inv.model == "INV1"
     assert inv.last_report_date == SAMPLE_UNIX
-    assert inv.last_report_temperature_c == 0.0
-    assert inv.last_report_kw == 0.0
-    assert inv.last_report_voltage_v == 0.0
-    assert inv.last_report_current_a == 0.0
-    assert inv.last_report_frequency_hz == 0.0
-    assert inv.lte_kwh == 0.0
-    assert inv.last_mppt_voltage_v == 0.0
-    assert inv.last_mppt_current_a == 0.0
-    assert inv.last_mppt_power_kw == 0.0
+    assert inv.last_report_temperature_c is None
+    assert inv.last_report_kw is None
+    assert inv.last_report_voltage_v is None
+    assert inv.last_report_current_a is None
+    assert inv.last_report_frequency_hz is None
+    assert inv.lte_kwh is None
+    assert inv.last_mppt_voltage_v is None
+    assert inv.last_mppt_current_a is None
+    assert inv.last_mppt_power_kw is None
 
 
 def test_inverter_from_varserver_sample_payload():
@@ -213,7 +213,7 @@ def test_inverter_from_varserver_sample_payload():
 
 
 def test_gateway_from_varserver_omitted_numeric_fields():
-    """Missing uptime / usage keys must not raise TypeError."""
+    """Missing uptime / usage keys come back as None, not 0."""
     gw = PVSGateway.from_varserver(
         {
             "/sys/info/model": "M ",
@@ -221,10 +221,10 @@ def test_gateway_from_varserver_omitted_numeric_fields():
             "/sys/info/sys_type": "T ",
         }
     )
-    assert gw.uptime_s == 0.0
-    assert gw.ram_usage_percent == 0
-    assert gw.flash_usage_percent == 0
-    assert gw.cpu_usage_percent == 0
+    assert gw.uptime_s is None
+    assert gw.ram_usage_percent is None
+    assert gw.flash_usage_percent is None
+    assert gw.cpu_usage_percent is None
     assert gw.flashwear_type_b_percent is None
 
 
@@ -274,9 +274,9 @@ def test_meter_from_varserver_production_and_net_shapes():
     assert prod.freq_hz == 59.988712
     assert prod.net_lte_kwh == 11991.549805
     assert prod.v12_v == 243.58197
-    assert prod.voltage_3ph_v == 0.0
-    assert prod.current_3ph_a == 0.0
-    assert prod.lte_3ph_kwh == 0.0
+    assert prod.voltage_3ph_v is None
+    assert prod.current_3ph_a is None
+    assert prod.lte_3ph_kwh is None
 
     net = PVSMeter.from_varserver(METER_NET_ANON)
     assert net.last_report_date == SAMPLE_UNIX
@@ -390,3 +390,11 @@ def test_pvs_firmware_setup_keyerror_becomes_firmware_check_error():
     fw = PVSFirmware(request_var)
     with pytest.raises(PVSFirmwareCheckError):
         asyncio.run(fw.setup())
+
+
+def test_missing_lifetime_counter_is_not_zero():
+    """A missing ltea3phsumKwh must not read as 0, or it looks like a counter reset."""
+    inv = PVSInverter.from_varserver({**INVERTER_SAMPLE, "ltea3phsumKwh": None})
+    assert inv.lte_kwh is None
+    meter = PVSMeter.from_varserver({**METER_NET_ANON, "netLtea3phsumKwh": ""})
+    assert meter.net_lte_kwh is None
