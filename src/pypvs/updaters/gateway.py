@@ -41,7 +41,10 @@ class PVSGatewayUpdater(PVSUpdater):
         self._extras_at: float | None = None
         # var name -> consecutive refreshes it came back empty
         self._empty_count: dict[str, int] = {}
-        self._batch_failures = 0
+        # per batch kind ("core", "extras"): consecutive fallbacks, and when
+        # batching was given up (it is tried again after UNSUPPORTED_RETRY_S)
+        self._batch_failures: dict[str, int] = {}
+        self._batching_off_at: dict[str, float] = {}
 
     async def probe(
         self, discovered_features: SupportedFeatures
@@ -86,17 +89,29 @@ class PVSGatewayUpdater(PVSUpdater):
                 retry.append(name)
         return known, retry
 
-    async def _read_batch(self, names: list[str]) -> dict[str, Any] | None:
+    def _batch_failed(self, kind: str, now: float) -> None:
+        failures = self._batch_failures.get(kind, 0) + 1
+        self._batch_failures[kind] = failures
+        if failures == BATCH_FAILURES_BEFORE_GIVING_UP:
+            _LOGGER.info("Batched %s reads keep failing; reading one by one", kind)
+            self._batching_off_at[kind] = now
+
+    async def _read_batch(
+        self, kind: str, names: list[str], now: float
+    ) -> dict[str, Any] | None:
         """Read `names` in one request. Returns None when the batch can't be
-        used: no batch reader, batching given up on, the PVS rejected it (400
-        for an unknown name, or a server error), or the answer was malformed.
-        The caller then reads the names one by one, which also records unknown
-        ones. Only an unreachable PVS (no HTTP status) raises."""
-        if (
-            self._request_named_vars is None
-            or not names
-            or self._batch_failures >= BATCH_FAILURES_BEFORE_GIVING_UP
-        ):
+        used: no batch reader, batching given up on for now, the PVS rejected
+        it (400 for an unknown name, or a server error), or the answer was
+        malformed. The caller then reads the names one by one, which also
+        records unknown ones. Only an unreachable PVS (no HTTP status) raises.
+        """
+        off_at = self._batching_off_at.get(kind)
+        if off_at is not None:
+            if now - off_at < UNSUPPORTED_RETRY_S:
+                return None
+            del self._batching_off_at[kind]
+            self._batch_failures[kind] = 0
+        if self._request_named_vars is None or not names:
             return None
         try:
             values = await self._request_named_vars(names)
@@ -107,9 +122,9 @@ class PVSGatewayUpdater(PVSUpdater):
                 raise
             values = None
         if values is None:
-            self._batch_failures += 1
-            if self._batch_failures == BATCH_FAILURES_BEFORE_GIVING_UP:
-                _LOGGER.info("Batched reads keep failing; reading one by one")
+            self._batch_failed(kind, now)
+        else:
+            self._batch_failures[kind] = 0
         return values
 
     async def update(self, pvs_data: PVSData) -> None:
@@ -120,15 +135,12 @@ class PVSGatewayUpdater(PVSUpdater):
         # one request for the known names; one by one when the batch fails
         # or leaves out a required name, and for retries
         known, retry = self._split(CORE_VARS, now)
-        batch = await self._read_batch(known)
-        required = [n for n in known if n not in OPTIONAL_CORE_VARS]
-        if batch is not None and all(n in batch for n in required):
-            self._batch_failures = 0
+        batch = await self._read_batch("core", known, now)
+        if batch is not None:
             sys_info.update(batch)
-            singles = retry
+            # a 200 that left a name out: keep the rest, read the gaps alone
+            singles = [n for n in known if n not in batch] + retry
         else:
-            if batch is not None:
-                self._batch_failures += 1
             singles = known + retry
         for name in singles:
             if name in OPTIONAL_CORE_VARS:
@@ -156,7 +168,7 @@ class PVSGatewayUpdater(PVSUpdater):
         self._extras_at = now
         known, retry = self._split(names, now)
         try:
-            batch = await self._read_batch(known)
+            batch = await self._read_batch("extras", known, now)
         except PVSError as e:
             _LOGGER.debug("Keeping previous gateway extras: %s", e)
             return

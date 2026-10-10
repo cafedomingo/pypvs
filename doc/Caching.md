@@ -7,12 +7,15 @@ CPU is already busy. pypvs follows that with three mechanisms.
 
 ## 1. Cached match queries (`PVS.getVarserverVars`)
 
-Every device group (inverters, meters, ESS, transfer switch, livedata) is read
-with a match query. pypvs runs each match once with a PVS-side cache id and
-afterwards only reads the cache:
+The device updaters (inverters, meters, ESS, transfer switch) read their
+groups with match queries, and so does any caller of `getVarserverVars` (a
+metrics exporter polling `/sys/livedata`, say). The first query for a match is
+plain, so one-off queries leave nothing behind on the PVS. From the second on,
+pypvs creates a PVS-side cache once and afterwards only reads it:
 
 ```
-first time:  /vars?match=/sys/devices/meter/&cache=pypvs_sys_devices_meter_<crc32>
+first:       /vars?match=/sys/devices/meter/
+second:      /vars?match=/sys/devices/meter/&cache=pypvs_sys_devices_meter_<crc32>
 afterwards:  /vars?cache=pypvs_sys_devices_meter_<crc32>
 ```
 
@@ -25,10 +28,15 @@ Because the name set is frozen, the cache is rebuilt:
 | When | Why |
 |---|---|
 | every `QUERY_CACHE_TTL_S` (5 min) | pick up devices that appeared, e.g. inverters waking one by one at sunrise |
-| on every `probe()` (`reset_query_caches()`) | probing must see the PVS as it is now, not an old name set |
+| on a full `probe()` (`reset_query_caches()`) | probing must see the PVS as it is now, not an old name set |
+| on an inverter re-probe, the inverter cache only | inverters are what's in doubt; the meter, ESS and transfer-switch caches stay |
 | when a cache read answers 400 | the PVS forgets all caches when it restarts (it does so nightly, around 00:15 local) |
 | when a cache read comes back empty | the devices behind it vanished |
-| when the host changes | the caches belong to another PVS |
+| when the host changes | the caches, and whether `cache=` works, belong to another PVS |
+
+Re-creating a cache id that already exists simply replaces it (checked on a
+PVS6). An answer to `match+cache` with no values creates no cache, so it costs
+the same as an uncached match.
 
 The PVS answers 400 both for "nothing matches" (inverters asleep after the
 nightly restart) and, possibly, for a firmware that rejects `cache=`. Until a
@@ -39,9 +47,10 @@ matches and the error is raised as an uncached match would. Once any cache has
 worked, a 400 simply means nothing matches, so a night-time inverter query
 costs one request, not two.
 
-Cache ids are `pypvs_<slug>_<crc32 of the match>`, so different matches never
-share a cache and other clients' caches are left alone. Caching can be turned
-off with `PVS(..., use_query_cache=False)`.
+Cache ids are `pypvs_<slug>_<crc32 of the match>`, so different matches get
+their own cache and other clients' caches are left alone. Each distinct match
+used more than once leaves one cache on the PVS until it restarts. Caching can
+be turned off with `PVS(..., use_query_cache=False)`.
 
 ## 2. Batched named reads (`PVS.getVarserverVarsByName`)
 
@@ -55,11 +64,12 @@ The PVS rejects the **whole** request with 400 if any name is unknown. So:
 - names are split into *known* (never seen unsupported), batched together, and
   *retry* (seen unsupported, due another try), read one by one so a name that
   is still missing can't sink the batch;
-- when a batch fails (400, server error, malformed answer, or a 200 that leaves
-  out a required variable), the names are read one by one, which records any
-  unknown name so later batches leave it out;
-- after three batches in a row fall back, the updater stops batching and logs
-  it once.
+- when a batch fails (400, server error, malformed answer), the names are read
+  one by one, which records any unknown name so later batches leave it out; a
+  200 that leaves a name out keeps the rest and reads just the gap;
+- the core and extras batches are tracked separately: after three fallbacks in
+  a row one of them stops batching (logged once) and tries again after an
+  hour.
 
 `PVSUpdater` takes an optional `request_named_vars`; updaters that don't use it
 are unaffected.

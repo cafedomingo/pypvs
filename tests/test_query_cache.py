@@ -71,13 +71,15 @@ def query(pvs, match="/sys/devices/inverter/"):
     return asyncio.run(pvs.getVarserverVars(match))
 
 
-def test_first_query_creates_the_cache_later_ones_read_it():
+def test_a_match_is_cached_from_its_second_use():
+    """A one-off match leaves no cache on the PVS; a repeated one is cached."""
     server = FakeVarserver(INVERTERS)
     pvs = make_pvs(server)
-    assert query(pvs) == INVERTERS
-    assert query(pvs) == INVERTERS
+    for _ in range(3):
+        assert query(pvs) == INVERTERS
     cache_id = query_cache_id("/sys/devices/inverter/")
     assert server.requests == [
+        {"match": "/sys/devices/inverter/"},
         {"match": "/sys/devices/inverter/", "cache": cache_id},
         {"cache": cache_id},
     ]
@@ -116,6 +118,7 @@ def test_the_cache_is_rebuilt_to_pick_up_new_devices(monkeypatch):
     server = FakeVarserver(INVERTERS)
     pvs = make_pvs(server)
     query(pvs)
+    query(pvs)  # creates the cache
     server.vars["/sys/devices/inverter/1/sn"] = "B"
     assert "/sys/devices/inverter/1/sn" not in query(pvs)  # cached name set
     clock.now += pvs_module.QUERY_CACHE_TTL_S
@@ -126,6 +129,7 @@ def test_other_errors_are_not_mistaken_for_a_lost_cache():
     server = FakeVarserver(INVERTERS)
     pvs = make_pvs(server)
     query(pvs)
+    query(pvs)  # creates the cache
 
     async def broken(endpoint, params=None):
         raise PVSCommunicationError("Cannot reach the PVS", status=None)
@@ -243,3 +247,43 @@ def test_a_single_var_is_read_whatever_name_the_pvs_echoes():
 
     pvs.getVarserver = answer
     assert asyncio.run(pvs.getVarserverVar("/sys/info/uptime")) == "42"
+
+
+def test_an_empty_answer_creates_no_cache():
+    """A PVS answering an empty match with 200 and no values must not make
+    every later poll pay an empty cache read plus a rebuild."""
+    server = FakeVarserver(METER)
+    pvs = make_pvs(server)
+
+    async def empty_ok(endpoint, params=None):
+        server.requests.append(dict(params))
+        return {"count": 0, "values": []}
+
+    pvs.getVarserver = empty_ok
+    for _ in range(3):
+        assert query(pvs) == {}
+    assert all("cache" not in r or "match" in r for r in server.requests)
+    assert pvs._query_caches == {}
+
+
+def test_a_new_host_relearns_cache_support():
+    server = FakeVarserver(METER)
+    pvs = make_pvs(server)
+    query(pvs, "/sys/devices/meter/")
+    query(pvs, "/sys/devices/meter/")  # caching worked on the first PVS
+    other = FakeVarserver(INVERTERS, supports_cache=False)
+    pvs.host = "other.test"
+    pvs.getVarserver = other
+    query(pvs)
+    assert query(pvs) == INVERTERS  # fell back to a plain match, not an error
+
+
+def test_an_inverter_reprobe_keeps_the_other_caches(monkeypatch):
+    server = FakeVarserver({**METER})
+    pvs = make_pvs(server)
+    query(pvs, "/sys/devices/meter/")
+    query(pvs, "/sys/devices/meter/")
+    pvs.reset_query_caches("/sys/devices/inverter/")
+    server.requests.clear()
+    query(pvs, "/sys/devices/meter/")
+    assert server.requests == [{"cache": query_cache_id("/sys/devices/meter/")}]

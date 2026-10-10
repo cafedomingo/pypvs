@@ -387,7 +387,8 @@ def test_a_batch_missing_a_required_name_falls_back():
     pvs.request_named_vars = short
     gw = run(pvs.updater(batched=True))
     assert gw.uptime_s == 81436.77
-    assert "/sys/info/uptime" in pvs.calls  # read on its own
+    # only the missing name is read on its own; the rest of the batch is kept
+    assert pvs.calls == ["/sys/info/uptime"]
 
 
 def test_a_retried_name_is_read_on_its_own(monkeypatch):
@@ -434,4 +435,30 @@ def test_batching_stops_after_repeated_failures(monkeypatch):
     for _ in range(5):
         run(updater)
         clock.now += 30
-    assert len(pvs.batches) == gateway_module.BATCH_FAILURES_BEFORE_GIVING_UP
+    core = [b for b in pvs.batches if "/sys/info/uptime" in b]
+    assert len(core) == gateway_module.BATCH_FAILURES_BEFORE_GIVING_UP
+    # and batching is tried again later, e.g. after a firmware update
+    clock.now += gateway_module.UNSUPPORTED_RETRY_S
+    pvs.batches.clear()
+    run(updater)
+    assert any("/sys/info/uptime" in b for b in pvs.batches)
+
+
+def test_a_failing_extras_batch_does_not_disable_core_batching(monkeypatch):
+    clock = Clock(monkeypatch)
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    real = pvs.request_named_vars
+
+    async def extras_rejected(names):
+        if "/sys/info/boardtype" in names:
+            pvs.batches.append(list(names))
+            raise PVSCommunicationError("HTTP 500", status=500)
+        return await real(names)
+
+    pvs.request_named_vars = extras_rejected
+    updater = pvs.updater(batched=True)
+    for _ in range(5):
+        run(updater)
+        clock.now += gateway_module.EXTRAS_REFRESH_S
+    core = [b for b in pvs.batches if "/sys/info/uptime" in b]
+    assert len(core) == 5  # core batching unaffected

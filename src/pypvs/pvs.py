@@ -8,7 +8,12 @@ from typing import Any
 
 import aiohttp
 
-from .const import HTTP_BAD_REQUEST, VAR_UPTIME, SupportedFeatures
+from .const import (
+    HTTP_BAD_REQUEST,
+    VAR_UPTIME,
+    VARS_MATCH_INVERTERS,
+    SupportedFeatures,
+)
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -39,6 +44,10 @@ def query_cache_id(match: str) -> str:
     e.g. "/sys/devices/inverter/" -> "pypvs_sys_devices_inverter_1a2b3c4d"."""
     slug = "_".join(re.findall(r"[A-Za-z0-9]+", match))
     return f"pypvs_{slug}_{zlib.crc32(match.encode()):08x}"
+
+
+def _has_values(response_data: Any) -> bool:
+    return isinstance(response_data, dict) and bool(response_data.get("values"))
 
 
 def _values(response_data: Any) -> dict[str, Any]:
@@ -100,6 +109,8 @@ class PVS:
         # True once the PVS has created a cache for us: a later 400 on
         # match+cache then means "nothing matches", not "no cache support"
         self._cache_supported = False
+        # matches queried at least once (caching starts on the second use)
+        self._seen_matches: set[str] = set()
         self._common_properties: CommonProperties = CommonProperties()
 
         self._firmware = PVSFirmware(self.getVarserverVar)
@@ -163,24 +174,32 @@ class PVS:
         _LOGGER.debug("Received %d values for %s", len(values), match)
         return values
 
-    def reset_query_caches(self) -> None:
-        """Forget the PVS-side caches (and any match found uncacheable) so the
-        next match queries rebuild them."""
+    def reset_query_caches(self, match: str | None = None) -> None:
+        """Forget the PVS-side cache for `match` (all of them, and any match
+        found uncacheable, when None) so the next query rebuilds it."""
+        if match is not None:
+            self._query_caches.pop(match, None)
+            return
         self._query_caches.clear()
         self._uncacheable.clear()
 
     async def _match_query(self, match: str) -> Any:
-        """Run a match query, through a PVS-side cache when enabled.
+        """Run a match query, through a PVS-side cache once it is used again.
 
+        The first query for a match is plain; from the second on it goes
+        through a PVS-side cache, so one-off queries don't leave caches behind.
         The cache holds the set of matched names (values are read live), so it
-        is rebuilt every QUERY_CACHE_TTL_S and on every probe to pick up devices
+        is rebuilt every QUERY_CACHE_TTL_S and on probes to pick up devices
         that appeared, and when a read fails with 400 (the PVS forgets its
         caches when it restarts) or comes back empty. If the PVS rejects the
         cache parameter but answers the plain match, caching is turned off for
-        that match. A plain match that answers 400 means nothing matches and is
-        raised as before.
+        that match. A match that answers 400 means nothing matches and is
+        raised as before. See doc/Caching.md.
         """
         if not self._use_query_cache or match in self._uncacheable:
+            return await self.getVarserver("/vars", params={"match": match})
+        if match not in self._seen_matches:
+            self._seen_matches.add(match)
             return await self.getVarserver("/vars", params={"match": match})
         cache_id = query_cache_id(match)
         now = time.monotonic()
@@ -193,7 +212,7 @@ class PVS:
                     raise
                 _LOGGER.debug("Query cache %s is gone; recreating it", cache_id)
             else:
-                if isinstance(data, dict) and data.get("values"):
+                if _has_values(data):
                     return data
                 _LOGGER.debug("Query cache %s came back empty; recreating it", cache_id)
         self._query_caches.pop(match, None)
@@ -211,8 +230,9 @@ class PVS:
             _LOGGER.debug("PVS rejected cache=%s; not caching %s", cache_id, match)
             self._uncacheable.add(match)
             return data
-        self._cache_supported = True
-        self._query_caches[match] = now
+        if _has_values(data):  # an empty answer created nothing worth reading
+            self._cache_supported = True
+            self._query_caches[match] = now
         return data
 
     async def discover(self) -> None:
@@ -236,10 +256,11 @@ class PVS:
         await self._firmware.setup()
         return True
 
-    async def probe(self) -> None:
+    async def probe(self, reset_caches: bool = True) -> None:
         """Probe for model and supported features."""
         # probe against a fresh view of the PVS, not cached name sets
-        self.reset_query_caches()
+        if reset_caches:
+            self.reset_query_caches()
         supported_features = SupportedFeatures(0)
         updaters: list[PVSUpdater] = []
         self._common_properties.reset_probe_properties()
@@ -282,7 +303,9 @@ class PVS:
                     self._inverter_reprobe_interval,
                 )
                 self._inverter_last_reprobe = now
-                await self.probe()
+                # only the inverters are in doubt; keep the other caches
+                self.reset_query_caches(VARS_MATCH_INVERTERS)
+                await self.probe(reset_caches=False)
                 if not (self._supported_features & SupportedFeatures.INVERTERS):
                     self._inverter_reprobe_interval = min(
                         self._inverter_reprobe_interval * 2,
@@ -308,8 +331,11 @@ class PVS:
     @host.setter
     def host(self, value: str | None):
         self._host = value
+        # caches and what we learnt about cache support belong to that PVS
         self._query_caches.clear()
         self._uncacheable.clear()
+        self._seen_matches.clear()
+        self._cache_supported = False
         self.update_clients()
 
     @property
