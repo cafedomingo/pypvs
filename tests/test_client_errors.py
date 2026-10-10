@@ -8,11 +8,14 @@ import json
 import aiohttp
 import pytest
 
+# isort: off
 from pypvs.exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
     PVSDataFormatError,
 )
+
+# isort: on
 from pypvs.pvs import PVS
 from pypvs.pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError
 
