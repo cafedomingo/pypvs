@@ -369,7 +369,7 @@ class PVSWebSocket:
         try:
             import datetime
 
-            timestamp = int(raw_value) if isinstance(raw_value, str) else int(raw_value)
+            timestamp: float = int(raw_value)
             current_time = datetime.datetime.now(datetime.UTC).timestamp()
 
             # Detect and cache timestamp format

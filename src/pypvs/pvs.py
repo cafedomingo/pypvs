@@ -69,8 +69,8 @@ class PVS:
         )
         self.host = host
 
-    def update_clients(self):
-        self.fcgi_client.pvs_url = f"https://{self.host}"
+    def update_clients(self) -> None:
+        self.fcgi_client.pvs_url = f"https://{self.host}" if self.host else None
 
     async def getVarserver(self, endpoint, params=None):
         try:
@@ -133,7 +133,7 @@ class PVS:
         await self._firmware.setup()
         self.fcgi_client.set_pvs_details({"serial": self._firmware.serial})
 
-    async def setup(self, auth_password: str = None) -> None:
+    async def setup(self, auth_password: str | None = None) -> None:
         if not self._firmware.serial:
             await self.discover()
 
@@ -175,7 +175,8 @@ class PVS:
         """Update data."""
         if not self._supported_features:
             await self.probe()
-            if not (self._supported_features & SupportedFeatures.INVERTERS):
+            features = self._supported_features or SupportedFeatures(0)
+            if not (features & SupportedFeatures.INVERTERS):
                 # start the re-probe backoff from this probe
                 self._inverter_last_reprobe = time.monotonic()
         elif not (self._supported_features & SupportedFeatures.INVERTERS):
@@ -210,15 +211,14 @@ class PVS:
         return data
 
     @property
-    def host(self) -> str:
+    def host(self) -> str | None:
         """Return the PVS host."""
         return self._host
 
     @host.setter
-    def host(self, value: str):
+    def host(self, value: str | None):
         self._host = value
-        if self._host:
-            self.update_clients()
+        self.update_clients()
 
     @property
     def serial_number(self) -> str | None:
@@ -243,7 +243,12 @@ class PVS:
 
         Returns:
             PVSWebSocket instance with enable callback wired up
+
+        Raises:
+            ValueError: if no host is set
         """
+        if not self._host:
+            raise ValueError("PVS host must be set before creating a websocket")
         return PVSWebSocket(
             host=self._host,
             port=port,

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .ess import PVSESS
+from .gateway import PVSGateway
 from .inverter import PVSInverter
 from .meter import PVSMeter
 from .transfer_switch import PVSTransferSwitch
@@ -13,7 +14,7 @@ from .transfer_switch import PVSTransferSwitch
 class PVSData:
     """Model for a PVS6."""
 
-    gateway: dict[str, Any] = field(default_factory=dict)
+    gateway: PVSGateway | None = None
 
     inverters: dict[str, PVSInverter] = field(default_factory=dict)
 

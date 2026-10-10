@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 import pypvs.pvs as pvs_module
 from pypvs.pvs import PVS
 
@@ -64,3 +66,15 @@ def test_reprobe_waits_for_the_backoff_after_the_first_probe(monkeypatch):
     clock.now += 1
     asyncio.run(pvs.update())
     assert calls["inverter_queries"] == probes_after_startup
+
+
+def test_websocket_needs_a_host():
+    with pytest.raises(ValueError, match="host"):
+        PVS(session=None).get_websocket()
+
+
+def test_clearing_the_host_clears_the_client_url():
+    pvs = PVS(session=None, host="10.0.0.5")
+    assert pvs.fcgi_client.pvs_url == "https://10.0.0.5"
+    pvs.host = None
+    assert pvs.fcgi_client.pvs_url is None
