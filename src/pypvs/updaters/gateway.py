@@ -13,6 +13,7 @@ from ..models.gateway import (
 )
 from ..models.pvs import PVSData
 from .base import PVSUpdater
+from .named_reader import UNSUPPORTED_RETRY_S as UNSUPPORTED_RETRY_S  # re-export
 from .named_reader import NamedVarReader
 
 _LOGGER = logging.getLogger(__name__)

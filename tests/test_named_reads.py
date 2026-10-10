@@ -76,3 +76,20 @@ def test_an_updater_without_the_new_argument_still_works():
         asyncio.run(pvs.probe())  # constructing OldStyle must not raise
     finally:
         remove()
+
+
+def test_the_constructor_check_tolerates_odd_classes():
+    from pypvs.pvs import _accepts
+
+    class PositionalOnly:
+        def __init__(self, request_named_vars, /):
+            pass
+
+    assert not _accepts(PositionalOnly, "request_named_vars")
+    assert not _accepts(int, "request_named_vars")  # no introspectable signature
+
+
+def test_the_retry_window_is_still_importable_from_the_gateway_module():
+    from pypvs.updaters.gateway import UNSUPPORTED_RETRY_S
+
+    assert UNSUPPORTED_RETRY_S > 0

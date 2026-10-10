@@ -24,11 +24,13 @@ class NamedVarReader:
 
     1. Names not known to be unsupported are requested in one batch.
     2. A batch rejected with an HTTP error status, or malformed, falls back to
-       reading the names one by one. A 200 that leaves names out still counts
-       as a working batch; only the missing names are read alone.
+       reading the names one by one. A 200 that returns some of the names
+       still counts as a working batch; only the missing ones are read alone.
+       A 200 that returns none of them counts as a failed batch.
     3. After BATCH_FAILURES_BEFORE_GIVING_UP rejected or malformed batches in
-       a row, batching stops (logged once); one batch is tried every
-       UNSUPPORTED_RETRY_S and a success turns it back on.
+       a row, batching stops (logged once per episode); one batch is tried
+       every UNSUPPORTED_RETRY_S, a success turns it back on, and a trial that
+       fails in any way waits another period.
     4. A name that answers 400 on its own is unknown. An optional one is left
        out and retried alone every UNSUPPORTED_RETRY_S; a retry that fails in
        any way keeps it out for another period. Required names are never left
@@ -84,6 +86,7 @@ class NamedVarReader:
             batch = await self._batch(known, now)
         except PVSError as e:  # rule 5: nothing could be read
             errors.update({n: e for n in known + retry})
+            self._keep_out(retry, values, now)
             return self._finish(names, values, errors)
         if batch is not None:
             values.update({n: batch[n] for n in known if n in batch})
@@ -99,9 +102,7 @@ class NamedVarReader:
                     errors.update({n: e for n in singles[i:]})
                     break
                 errors[name] = e
-                if name in self._optional and (
-                    e.status == HTTP_BAD_REQUEST or name in self.unsupported
-                ):
+                if name in self._optional and e.status == HTTP_BAD_REQUEST:
                     _LOGGER.debug("PVS does not support %s", name)
                     self.unsupported[name] = now  # rule 4
             except PVSError as e:  # rule 5: login failed, ...
@@ -109,7 +110,15 @@ class NamedVarReader:
                 break
             else:
                 self.unsupported.pop(name, None)
+        self._keep_out(retry, values, now)
         return self._finish(names, values, errors)
+
+    def _keep_out(self, retry: list[str], values: dict[str, Any], now: float) -> None:
+        """Rule 4: a retried name that still has no value, for whatever reason,
+        stays out for another period."""
+        for name in retry:
+            if name not in values:
+                self.unsupported[name] = now
 
     def _finish(
         self, names: list[str], values: dict[str, Any], errors: dict[str, PVSError]
@@ -121,30 +130,41 @@ class NamedVarReader:
                 error = errors.get(name)
                 if name not in self._optional:
                     raise error or PVSDataFormatError(f"The PVS did not return {name}")
-                if error is not None and not (
-                    isinstance(error, PVSDataFormatError)
-                    or getattr(error, "status", None) == HTTP_BAD_REQUEST
-                ):
+                unknown = (
+                    isinstance(error, PVSCommunicationError)
+                    and error.status == HTTP_BAD_REQUEST
+                )
+                empty = isinstance(error, PVSDataFormatError)
+                if error is not None and not (unknown or empty):
                     raise error
         return values, errors
 
     async def _batch(self, names: list[str], now: float) -> dict[str, Any] | None:
         if self._request_named_vars is None or not names:
             return None
+        trial = False
         if self._off_at is not None:
             if now - self._off_at < UNSUPPORTED_RETRY_S:
                 return None
-            self._off_at = None  # try one batch; a failure turns it off again
+            self._off_at = None
+            trial = True
         try:
             values: dict[str, Any] | None = await self._request_named_vars(names)
         except PVSDataFormatError:
             values = None
         except PVSCommunicationError as e:
             if e.status is None:
+                if trial:
+                    self._off_at = now  # rule 3: the trial failed; wait again
                 raise
             values = None
-        if values is not None:  # rule 2: a partial 200 still works
+        except PVSError:
+            if trial:
+                self._off_at = now
+            raise
+        if values is not None and any(n in values for n in names):  # rule 2
             self._failures = 0
+            self._logged = False
             return values
         self._failures += 1  # rule 3
         if self._failures >= BATCH_FAILURES_BEFORE_GIVING_UP:

@@ -47,9 +47,23 @@ def register_updater(updater: type["PVSUpdater"]) -> Callable[[], None]:
     return _remove_updater
 
 
+_ACCEPTS: dict[tuple[type, str], bool] = {}
+
+
 def _accepts(cls: type, name: str) -> bool:
-    params = inspect.signature(cls).parameters.values()
-    return any(p.name == name or p.kind is p.VAR_KEYWORD for p in params)
+    """Whether cls(...) takes `name` as a keyword argument."""
+    key = (cls, name)
+    if key not in _ACCEPTS:
+        try:
+            params = list(inspect.signature(cls).parameters.values())
+        except (TypeError, ValueError):
+            params = []
+        _ACCEPTS[key] = any(
+            (p.name == name and p.kind is not p.POSITIONAL_ONLY)
+            or p.kind is p.VAR_KEYWORD
+            for p in params
+        )
+    return _ACCEPTS[key]
 
 
 def get_updaters() -> list[type[PVSUpdater]]:

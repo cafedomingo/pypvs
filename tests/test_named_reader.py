@@ -244,3 +244,53 @@ def test_strict_raises_for_an_optional_name_that_really_failed():
     pvs = FakePVS(VALUES, batch_error=SERVER_ERROR, single_errors={"/c": SERVER_ERROR})
     with pytest.raises(PVSCommunicationError, match="500"):
         read(strict(pvs))
+
+
+@pytest.mark.parametrize(
+    "failure", [PVSDataFormatError("empty"), UNREACHABLE, PVSAuthenticationError("x")]
+)
+def test_a_retry_that_fails_in_any_way_stays_out(failure):
+    pvs = FakePVS({"/a": "1", "/b": "2"})
+    reader = pvs.reader()
+    read(reader)  # /c found unsupported
+    pvs.values["/c"] = "3"
+    pvs.single_errors["/c"] = failure
+    read(reader, now=UNSUPPORTED_RETRY_S)  # the retry fails
+    pvs.singles.clear()
+    read(reader, now=UNSUPPORTED_RETRY_S + 30)
+    assert "/c" not in pvs.singles
+
+
+def test_a_batch_that_returns_none_of_the_names_is_a_failure():
+    pvs = FakePVS(VALUES, drop=set(VALUES))
+    reader = pvs.reader()
+    for i in range(BATCH_FAILURES_BEFORE_GIVING_UP + 2):
+        read(reader, now=i)
+    assert len(pvs.batches) == BATCH_FAILURES_BEFORE_GIVING_UP
+
+
+@pytest.mark.parametrize("failure", [UNREACHABLE, PVSAuthenticationError("x")])
+def test_a_failed_trial_batch_waits_another_period(failure):
+    pvs = FakePVS(VALUES, batch_error=SERVER_ERROR)
+    reader = pvs.reader()
+    for i in range(BATCH_FAILURES_BEFORE_GIVING_UP):
+        read(reader, now=i)
+    pvs.batch_error = failure
+    read(reader, now=UNSUPPORTED_RETRY_S + 10)  # the trial, which aborts
+    pvs.batches.clear()
+    read(reader, now=UNSUPPORTED_RETRY_S + 40)
+    assert pvs.batches == []
+
+
+def test_giving_up_is_logged_again_after_a_recovery(caplog):
+    caplog.set_level(logging.INFO, logger="pypvs")
+    pvs = FakePVS(VALUES, batch_error=SERVER_ERROR)
+    reader = pvs.reader()
+    for i in range(BATCH_FAILURES_BEFORE_GIVING_UP):
+        read(reader, now=i)
+    pvs.batch_error = None
+    read(reader, now=UNSUPPORTED_RETRY_S + 10)  # recovers
+    pvs.batch_error = SERVER_ERROR
+    for i in range(BATCH_FAILURES_BEFORE_GIVING_UP):
+        read(reader, now=UNSUPPORTED_RETRY_S + 20 + i)
+    assert caplog.text.count("keep failing") == 2
