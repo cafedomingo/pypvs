@@ -33,7 +33,22 @@ CORE_VARS = (
     VAR_FLASHWEAR,
 )
 OPTIONAL_CORE_VARS = frozenset({VAR_FLASHWEAR})
-#: read every few minutes, all optional
+#: documented interfaces per model (doc/varserver-variables-public-*.csv)
+INTERFACES_BY_MODEL = {
+    "PVS6": ("wan0", "wan1", "sta0", "wwan0"),
+    "PVS5": ("wan", "cell", "plc", "sta0"),
+}
+INTERFACES = tuple(dict.fromkeys(n for ns in INTERFACES_BY_MODEL.values() for n in ns))
+
+
+def interface_vars(model: str | None) -> tuple[str, ...]:
+    """/net/{name}/state for the model's interfaces; all known names if the
+    model is unknown."""
+    names = INTERFACES_BY_MODEL.get((model or "").strip(), INTERFACES)
+    return tuple(f"/net/{name}/state" for name in names)
+
+
+#: read every few minutes with the interface states, all optional
 EXTRA_VARS = (
     VAR_FWREV,
     VAR_BOARDTYPE,
@@ -45,9 +60,6 @@ EXTRA_VARS = (
     ESS_RESERVE_SOC,
     ESS_CONTROL_MODE,
 )
-#: /net/{interface}/state for whatever interfaces the PVS has
-NET_MATCH = "/net/"
-_NET_STATE = re.compile(r"^/net/([^/]+)/state$")
 _PLACEHOLDERS = {"", "TBD"}
 
 
@@ -64,15 +76,19 @@ def _flag(data: dict[str, Any], key: str) -> bool | None:
     return None if value is None else value != 0
 
 
+def _whole(data: dict[str, Any], key: str) -> int | None:
+    value = float_var(data, key)
+    return None if value is None or not value.is_integer() else int(value)
+
+
 def _count(data: dict[str, Any], key: str) -> int | None:
     """An unsigned counter, decimal or 0x-prefixed hex."""
     value = _text(data, key)
     if value is None:
         return None
-    try:
-        return int(value, 16) if value.lower().startswith("0x") else int(value)
-    except ValueError:
-        return None
+    if re.fullmatch(r"0[xX][0-9a-fA-F]+", value):
+        return int(value, 16)
+    return int(value) if re.fullmatch(r"[0-9]+", value) else None
 
 
 @dataclass(slots=True)
@@ -139,13 +155,13 @@ class PVSGateway:
             usb_erase_count=_count(data, VAR_USB_ERASE_COUNT),
             active_interface=_text(data, VAR_ACTIVE_INTERFACE),
             interface_states={
-                m.group(1): str(value).strip()
-                for key, value in data.items()
-                if (m := _NET_STATE.match(key)) and value is not None
+                name: state
+                for name in INTERFACES
+                if (state := _text(data, f"/net/{name}/state")) is not None
             },
             broadband_connected=_flag(data, VAR_BROADBAND_CONNECTED),
             cell_connected=_flag(data, VAR_CELL_CONNECTED),
-            low_data_mode=int_var(data, VAR_LOW_DATA_MODE),
+            low_data_mode=_whole(data, VAR_LOW_DATA_MODE),
             ess_reserve_soc=float_var(data, ESS_RESERVE_SOC),
             ess_control_mode=_text(data, ESS_CONTROL_MODE),
         )
