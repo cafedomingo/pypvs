@@ -5,7 +5,7 @@ from ..const import VARS_MATCH_TRANSFER_SWITCH, SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.pvs import PVSData
 from ..models.transfer_switch import PVSTransferSwitch
-from .base import PVSUpdater
+from .base import PVSUpdater, group_device_vars
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            transfer_switches_dict: list[dict[str, Any]] = await self._request_vars(
+            transfer_switches_dict: dict[str, Any] = await self._request_vars(
                 VARS_MATCH_TRANSFER_SWITCH
             )
         except Exception as e:
@@ -48,26 +48,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
             self._data_unavailable = False
 
         try:
-            # construct a list of transfer switches from the provided dictionary,
-            # drop all parent path
-            transfer_switches_grouped = {}
-            for key, val in transfer_switches_dict.items():
-                # Extract the transfer switch index from the name, e.g., '0'
-                # from '/sys/devices/transfer_switch/0/state'
-                parts = key.split("/")
-                if len(parts) >= 5:
-                    idx = int(parts[4])
-                    param = parts[5]
-                    if idx not in transfer_switches_grouped:
-                        transfer_switches_grouped[idx] = {param: val}
-                    else:
-                        transfer_switches_grouped[idx][param] = val
-
-            # Convert to a list sorted by index
-            transfer_switches_data = [
-                transfer_switches_grouped[idx]
-                for idx in sorted(transfer_switches_grouped.keys(), key=int)
-            ]
+            transfer_switches_data = group_device_vars(transfer_switches_dict)
         except Exception as e:
             _LOGGER.error("Failed to process transfer switch data: %s", e)
             return
