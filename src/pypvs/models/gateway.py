@@ -16,11 +16,11 @@ class PVSGateway:
     pvs_type: str
     hardware_version: str
     software_version: str
-    uptime_s: float
+    uptime_s: float | None
     mac: str
-    ram_usage_percent: int
-    flash_usage_percent: int
-    cpu_usage_percent: int
+    ram_usage_percent: int | None
+    flash_usage_percent: int | None
+    cpu_usage_percent: int | None
     flashwear_type_b_percent: int | None
 
     @classmethod
@@ -46,10 +46,10 @@ class PVSGateway:
             pvs_type=pvs_model,
             hardware_version=f"{pvs_model} {hw_rev}",
             software_version=str_var(data, "/sys/info/sw_rev"),
-            uptime_s=float_var(data, "/sys/info/uptime", 0.0),
+            uptime_s=float_var(data, "/sys/info/uptime"),
             mac=str_var(data, "/sys/info/lmac"),
-            ram_usage_percent=int_var(data, "/sys/info/ram_usage", 0),
-            flash_usage_percent=int_var(data, "/sys/info/flash_usage", 0),
-            cpu_usage_percent=int_var(data, "/sys/info/cpu_usage", 0),
+            ram_usage_percent=int_var(data, "/sys/info/ram_usage"),
+            flash_usage_percent=int_var(data, "/sys/info/flash_usage"),
+            cpu_usage_percent=int_var(data, "/sys/info/cpu_usage"),
             flashwear_type_b_percent=flashwear,
         )

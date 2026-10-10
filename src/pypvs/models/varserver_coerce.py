@@ -1,11 +1,18 @@
-"""Coerce varserver / JSON dict values (missing keys and explicit nulls)."""
+"""Coerce varserver / JSON dict values (missing keys and explicit nulls).
+
+Missing or unparseable values come back as None rather than zero, so a
+reading the PVS did not report is not mistaken for a real 0 (for lifetime
+energy counters, a false 0 looks like a counter reset).
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 
-def float_var(data: dict[str, Any], key: str, default: float = 0.0) -> float:
+def float_var(
+    data: dict[str, Any], key: str, default: float | None = None
+) -> float | None:
     v = data.get(key)
     if v is None:
         return default
@@ -15,7 +22,9 @@ def float_var(data: dict[str, Any], key: str, default: float = 0.0) -> float:
         return default
 
 
-def int_var(data: dict[str, Any], key: str, default: int = 0) -> int:
+def int_var(
+    data: dict[str, Any], key: str, default: int | None = None
+) -> int | None:
     v = data.get(key)
     if v is None:
         return default
