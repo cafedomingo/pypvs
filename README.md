@@ -21,26 +21,23 @@ You can verify the installed firmware version in the **SunStrong Connect** mobil
 
 ## Installation
 
-Install **PyPVS** directly from PyPI:
-
-![PyPI - Version](https://img.shields.io/pypi/v/pypvs)  
-**PyPI:** [pypvs](https://pypi.org/project/pypvs/)
+This is a fork of [SunStrong-Management/pypvs](https://github.com/SunStrong-Management/pypvs). It is not published to PyPI; install it from git:
 
 ```bash
-pip install pypvs
+pip install "pypvs @ git+https://github.com/cafedomingo/pypvs@main"
 ```
     
 ## Documentation
 
-- [Description of API Gateway](https://github.com/SunStrong-Management/pypvs/blob/main/doc/LocalAPI.md)
+- [Description of API Gateway](doc/LocalAPI.md)
 
 Reference of PVS Gateway public variables
 
-- [PVS5 variables](https://github.com/SunStrong-Management/pypvs/blob/main/doc/varserver-variables-public-pvs5.csv)
-- [PVS6 variables](https://github.com/SunStrong-Management/pypvs/blob/main/doc/varserver-variables-public-pvs6.csv)
+- [PVS5 variables](doc/varserver-variables-public-pvs5.csv)
+- [PVS6 variables](doc/varserver-variables-public-pvs6.csv)
 
 Documentation of Legacy API
-- [Legacy API](https://github.com/SunStrong-Management/pypvs/blob/main/doc/dl_cgi.md)
+- [Legacy API](doc/dl_cgi.md)
 
 
 ## Run Locally
@@ -48,7 +45,7 @@ Documentation of Legacy API
 Clone the project
 
 ```bash
-  git clone https://github.com/SunStrong-Management/pypvs.git
+  git clone https://github.com/cafedomingo/pypvs.git
 ```
 
 Go to the project directory
@@ -62,17 +59,11 @@ Prepare virtual environment
   python3 -m venv venv
 ```
 
-Install dependencies
+Install in development mode, with the example and test dependencies
 
 ```bash
-  source venv/activate
-  pip install -r requirements.txt
-```
-
-Install in development mode (optional)
-
-```bash
-  pip install -e .
+  source venv/bin/activate
+  pip install -e ".[examples,test]"
 ```
 
 Set the environment variables

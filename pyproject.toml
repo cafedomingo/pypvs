@@ -30,8 +30,9 @@ examples = ["zeroconf"]
 test = ["pytest"]
 
 [project.urls]
-Homepage = "https://github.com/SunStrong-Management/pypvs"
-Issues = "https://github.com/SunStrong-Management/pypvs/issues"
+Homepage = "https://github.com/cafedomingo/pypvs"
+Issues = "https://github.com/cafedomingo/pypvs/issues"
+Upstream = "https://github.com/SunStrong-Management/pypvs"
 
 [tool.setuptools.packages.find]
 where = ["src"]
