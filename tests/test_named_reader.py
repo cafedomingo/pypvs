@@ -7,7 +7,11 @@ import logging
 
 import pytest
 
-from pypvs.exceptions import PVSCommunicationError, PVSDataFormatError
+from pypvs.exceptions import (
+    PVSAuthenticationError,
+    PVSCommunicationError,
+    PVSDataFormatError,
+)
 from pypvs.updaters.named_reader import (
     BATCH_FAILURES_BEFORE_GIVING_UP,
     UNSUPPORTED_RETRY_S,
@@ -136,15 +140,26 @@ def test_batching_gives_up_logs_once_and_retries_hourly(caplog):
     assert pvs.singles == []  # batching back on
 
 
-@pytest.mark.parametrize("where", ["batch", "single"])
-def test_an_unreachable_pvs_raises(where):
-    pvs = FakePVS(
-        VALUES,
-        batch_error=UNREACHABLE if where == "batch" else SERVER_ERROR,
-        single_errors={"/a": UNREACHABLE} if where == "single" else None,
-    )
-    with pytest.raises(PVSCommunicationError, match="Cannot reach"):
-        read(pvs.reader())
+def test_an_unreachable_pvs_stops_reading_and_keeps_what_was_read():
+    pvs = FakePVS(VALUES, batch_error=SERVER_ERROR, single_errors={"/b": UNREACHABLE})
+    values, errors = read(pvs.reader())
+    assert values == {"/a": "1"}
+    assert errors == {"/b": UNREACHABLE, "/c": UNREACHABLE}
+    assert pvs.singles == ["/a", "/b"]  # stopped at the first unreachable read
+
+
+def test_an_unreachable_batch_reads_nothing_else():
+    pvs = FakePVS(VALUES, batch_error=UNREACHABLE)
+    values, errors = read(pvs.reader())
+    assert values == {} and set(errors) == {"/a", "/b", "/c"}
+    assert pvs.singles == []
+
+
+def test_a_failed_login_stops_reading_like_an_unreachable_pvs():
+    login = PVSAuthenticationError("login failed")
+    pvs = FakePVS(VALUES, batch_error=SERVER_ERROR, single_errors={"/b": login})
+    values, errors = read(pvs.reader())
+    assert values == {"/a": "1"} and errors == {"/b": login, "/c": login}
 
 
 def test_per_name_failures_are_returned_not_raised():
@@ -164,3 +179,68 @@ def test_without_a_batch_reader_names_are_read_one_by_one():
     reader = NamedVarReader("test", pvs.request_var, None)
     assert read(reader)[0] == VALUES
     assert pvs.batches == [] and pvs.singles == ["/a", "/b", "/c"]
+
+
+def test_a_partial_batch_is_not_a_batch_failure():
+    """A variable that keeps answering empty leaves every batch partial; that
+    must not switch batching off."""
+    pvs = FakePVS(VALUES, drop={"/b"})
+    reader = pvs.reader()
+    for i in range(BATCH_FAILURES_BEFORE_GIVING_UP + 2):
+        read(reader, now=i)
+    assert len(pvs.batches) == BATCH_FAILURES_BEFORE_GIVING_UP + 2
+
+
+def test_a_retry_that_still_answers_400_stays_out_another_period():
+    pvs = FakePVS({"/a": "1", "/b": "2"})
+    reader = pvs.reader()
+    read(reader)
+    read(reader, now=UNSUPPORTED_RETRY_S)  # retried alone, still 400
+    pvs.singles.clear()
+    read(reader, now=UNSUPPORTED_RETRY_S + 30)
+    assert pvs.singles == []  # not retried again on every poll
+
+
+def test_a_retry_that_fails_otherwise_also_stays_out():
+    pvs = FakePVS({"/a": "1", "/b": "2"})
+    reader = pvs.reader()
+    read(reader)
+    pvs.single_errors["/c"] = SERVER_ERROR
+    read(reader, now=UNSUPPORTED_RETRY_S)
+    pvs.singles.clear()
+    read(reader, now=UNSUPPORTED_RETRY_S + 30)
+    assert pvs.singles == []
+    assert reader.is_unsupported("/c", UNSUPPORTED_RETRY_S + 30)
+
+
+def strict(pvs):
+    return NamedVarReader(
+        "test", pvs.request_var, pvs.request_named_vars, ("/c",), strict=True
+    )
+
+
+def test_strict_raises_for_a_missing_required_name():
+    pvs = FakePVS({"/a": "1", "/c": "3"})
+    with pytest.raises(PVSCommunicationError):
+        read(strict(pvs))
+
+
+def test_strict_raises_for_an_unreachable_pvs():
+    pvs = FakePVS(VALUES, batch_error=UNREACHABLE)
+    with pytest.raises(PVSCommunicationError, match="Cannot reach"):
+        read(strict(pvs))
+
+
+def test_strict_tolerates_an_optional_name_that_is_unknown_or_empty():
+    pvs = FakePVS({"/a": "1", "/b": "2"})  # /c unknown
+    assert read(strict(pvs))[0] == {"/a": "1", "/b": "2"}
+    pvs = FakePVS(
+        VALUES, batch_error=SERVER_ERROR, single_errors={"/c": PVSDataFormatError("")}
+    )
+    assert read(strict(pvs))[0] == {"/a": "1", "/b": "2"}
+
+
+def test_strict_raises_for_an_optional_name_that_really_failed():
+    pvs = FakePVS(VALUES, batch_error=SERVER_ERROR, single_errors={"/c": SERVER_ERROR})
+    with pytest.raises(PVSCommunicationError, match="500"):
+        read(strict(pvs))

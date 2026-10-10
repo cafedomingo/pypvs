@@ -1,3 +1,4 @@
+import inspect
 import logging
 import time
 from collections.abc import Callable
@@ -44,6 +45,11 @@ def register_updater(updater: type["PVSUpdater"]) -> Callable[[], None]:
         UPDATERS.remove(updater)
 
     return _remove_updater
+
+
+def _accepts(cls: type, name: str) -> bool:
+    params = inspect.signature(cls).parameters.values()
+    return any(p.name == name or p.kind is p.VAR_KEYWORD for p in params)
 
 
 def get_updaters() -> list[type[PVSUpdater]]:
@@ -172,11 +178,15 @@ class PVS:
         self._common_properties.reset_probe_properties()
 
         for updater in get_updaters():
+            kwargs = {}
+            if _accepts(updater, "request_named_vars"):
+                # updaters registered by others may predate this argument
+                kwargs["request_named_vars"] = self.getVarserverVarsByName
             klass = updater(
                 request_var=self.getVarserverVar,
                 request_vars=self.getVarserverVars,
-                request_named_vars=self.getVarserverVarsByName,
                 common_properties=self._common_properties,
+                **kwargs,
             )
             if updater_features := await klass.probe(supported_features):
                 supported_features |= updater_features

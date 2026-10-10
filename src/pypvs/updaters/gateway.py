@@ -2,8 +2,8 @@ import logging
 import time
 from typing import Any
 
-from ..const import HTTP_BAD_REQUEST, VARS_MATCH_INFO, SupportedFeatures
-from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
+from ..const import VARS_MATCH_INFO, SupportedFeatures
+from ..exceptions import PVSDataFormatError
 from ..models.gateway import (
     CORE_VARS,
     EXTRA_VARS,
@@ -13,7 +13,7 @@ from ..models.gateway import (
 )
 from ..models.pvs import PVSData
 from .base import PVSUpdater
-from .named_reader import UNSUPPORTED_RETRY_S, NamedVarReader
+from .named_reader import NamedVarReader
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,8 +23,6 @@ EXTRAS_REFRESH_S = 300
 # An empty answer may be a blip; drop the cached value only once it repeats.
 EMPTY_REFRESHES_BEFORE_DROP = 3
 
-__all__ = ["PVSGatewayUpdater", "EXTRAS_REFRESH_S", "UNSUPPORTED_RETRY_S"]
-
 
 class PVSGatewayUpdater(PVSUpdater):
     """Class to handle updates for the PVS gateway."""
@@ -32,7 +30,11 @@ class PVSGatewayUpdater(PVSUpdater):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._core = NamedVarReader(
-            "core", self._request_var, self._request_named_vars, OPTIONAL_CORE_VARS
+            "core",
+            self._request_var,
+            self._request_named_vars,
+            OPTIONAL_CORE_VARS,
+            strict=True,
         )
         # every extra is optional; the set is per PVS model, so pass it in full
         self._extras_reader = NamedVarReader(
@@ -59,19 +61,8 @@ class PVSGatewayUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         now = time.monotonic()
-        values, errors = await self._core.read(CORE_VARS, now)
-        for name in CORE_VARS:
-            if name in values:
-                continue
-            error = errors.get(name)
-            if name not in OPTIONAL_CORE_VARS:
-                raise error or PVSDataFormatError(f"The PVS did not return {name}")
-            # an optional var may be missing (400) or empty, not failing
-            if (
-                isinstance(error, PVSCommunicationError)
-                and error.status != HTTP_BAD_REQUEST
-            ):
-                raise error
+        # strict: a missing required var (or a real failure) fails the update
+        values, _ = await self._core.read(CORE_VARS, now)
         sys_info: dict[str, Any] = dict(values)
 
         if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
@@ -89,11 +80,7 @@ class PVSGatewayUpdater(PVSUpdater):
         unreachable (or the login fails) every last value is kept until the next
         refresh."""
         self._extras_at = now
-        try:
-            values, errors = await self._extras_reader.read(names, now)
-        except PVSError as e:  # unreachable, login failed, ...
-            _LOGGER.debug("Keeping previous gateway extras: %s", e)
-            return
+        values, errors = await self._extras_reader.read(names, now)
         for name in names:
             if name in values:
                 self._extras[name] = values[name]

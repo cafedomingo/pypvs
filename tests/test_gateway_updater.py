@@ -15,6 +15,7 @@ from pypvs.exceptions import (
 from pypvs.models.common import CommonProperties
 from pypvs.models.pvs import PVSData
 from pypvs.updaters.gateway import PVSGatewayUpdater
+from pypvs.updaters.named_reader import UNSUPPORTED_RETRY_S
 
 SYS_INFO = {
     "/sys/info/sys_type": "Storage",
@@ -223,7 +224,7 @@ def test_unsupported_vars_are_asked_again_later(monkeypatch):
     clock.now += 30
     run(updater)
     assert pvs.calls.count("/sys/pvs/flashwear_type_b") == 1
-    clock.now += gateway_module.UNSUPPORTED_RETRY_S
+    clock.now += UNSUPPORTED_RETRY_S
     values["/sys/pvs/flashwear_type_b"] = "0x02"
     gw = run(updater)
     assert gw.flashwear_type_b_percent == 20
@@ -272,7 +273,7 @@ def test_an_extra_that_appears_later_is_picked_up(monkeypatch):
     updater = FakePVS(values).updater()
     assert run(updater).ess_control_mode is None
     values["/ess/config/dcm/mode_param/control_mode"] = "SELF_CONSUMPTION"
-    clock.now += gateway_module.UNSUPPORTED_RETRY_S
+    clock.now += UNSUPPORTED_RETRY_S
     assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
 
 
