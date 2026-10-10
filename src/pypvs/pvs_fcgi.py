@@ -61,7 +61,7 @@ class PVSFCGIClient:
 
         login_url = f"{self._pvs_url}{self.login_endpoint}"
 
-        _LOGGER.debug(f"Logging in to {login_url} with headers: {headers}")
+        _LOGGER.debug("Logging in to %s", login_url)
         # TODO: Ignore certificate errors for now
         async with self.session.get(login_url, headers=headers, ssl=False) as response:
             if response.status != 200:
@@ -71,7 +71,7 @@ class PVSFCGIClient:
                 )
 
             self.cookies = response.cookies
-            _LOGGER.info(f"Login successful! with cookies: {self.cookies}")
+            _LOGGER.info("Login successful")
 
     async def _post_internal(self, url, payload_str):
         # TODO: Ignore certificate errors for now
@@ -129,10 +129,7 @@ class PVSFCGIClient:
 
         url = f"{self._pvs_url}{endpoint}"
         payload_str = "".join([f"{key}={value}" for key, value in params.items()])
-        _LOGGER.debug(
-            f"POST request to {url} with payload: {payload_str} "
-            f"and cookies: {self.cookies}"
-        )
+        _LOGGER.debug("POST request to %s with payload: %s", url, payload_str)
 
         # Proactively login if we don't have a session yet
         if self.cookies is None and self.auth_user and self.auth_password:
