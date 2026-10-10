@@ -27,7 +27,8 @@ dependencies = [
 
 [project.optional-dependencies]
 examples = ["zeroconf"]
-test = ["pytest", "ruff==0.16.9"]
+test = ["pytest"]
+lint = ["ruff==0.16.9"]
 
 [project.urls]
 Homepage = "https://github.com/cafedomingo/pypvs"
@@ -59,7 +60,11 @@ select = [
     "I",   # isort
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
+    "C90", # mccabe complexity
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 39  # carried over from .flake8
 
 [tool.ruff.lint.isort]
 known-first-party = ["pypvs"]

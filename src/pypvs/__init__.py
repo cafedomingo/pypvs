@@ -9,7 +9,7 @@ from .exceptions import (
 )
 from .models.inverter import PVSInverter
 from .models.livedata import PVSLiveData
-from .pvs import PVS
+from .pvs import PVS, register_updater
 from .pvs_websocket import ConnectionState, PVSWebSocket
 
 __all__ = (
