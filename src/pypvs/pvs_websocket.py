@@ -146,7 +146,7 @@ class PVSWebSocket:
             self._task.cancel()
             try:
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
 
         self._task = None
@@ -223,7 +223,9 @@ class PVSWebSocket:
                         async def monitor_heartbeat() -> None:
                             while True:
                                 await asyncio.sleep(30)
-                                elapsed = time.monotonic() - last_message_time
+                                # reads the latest value on purpose; the task is
+                                # cancelled before last_message_time is rebound
+                                elapsed = time.monotonic() - last_message_time  # noqa: B023
                                 if elapsed > stale_timeout:
                                     _LOGGER.warning(
                                         "WebSocket stale (no messages for %.0fs),"
@@ -368,7 +370,7 @@ class PVSWebSocket:
             import datetime
 
             timestamp = int(raw_value) if isinstance(raw_value, str) else int(raw_value)
-            current_time = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            current_time = datetime.datetime.now(datetime.UTC).timestamp()
 
             # Detect and cache timestamp format
             if self._timestamp_format == "milliseconds":
@@ -386,6 +388,6 @@ class PVSWebSocket:
             if timestamp < 0 or timestamp > current_time + (365 * 24 * 3600):
                 return None
 
-            return datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+            return datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC)
         except (ValueError, TypeError, OSError, OverflowError):
             return None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pypvs.models.livedata import PVSLiveData
 
@@ -18,7 +18,7 @@ LIVE_STRINGS = {
 
 def test_parses_string_payload():
     live = PVSLiveData.from_varserver(LIVE_STRINGS)
-    assert live.time == datetime.fromtimestamp(1791612709, tz=timezone.utc)
+    assert live.time == datetime.fromtimestamp(1791612709, tz=UTC)
     assert live.pv_p == 3.2
     assert live.net_p == -1.1
     assert live.soc == 0.2
@@ -45,7 +45,7 @@ def test_booleans_are_not_numbers():
 
 def test_millisecond_timestamps():
     live = PVSLiveData.from_varserver({"/sys/livedata/time": "1791612709000"})
-    assert live.time == datetime.fromtimestamp(1791612709, tz=timezone.utc)
+    assert live.time == datetime.fromtimestamp(1791612709, tz=UTC)
 
 
 def test_get_by_var_path():

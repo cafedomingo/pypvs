@@ -1,13 +1,10 @@
-import asyncio
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import aiohttp
 
 from .const import VAR_UPTIME, SupportedFeatures
-
-# isort: off
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -15,16 +12,10 @@ from .exceptions import (
     PVSError,
     PVSProbeFailed,
 )
-
-# isort: on
 from .firmware import PVSFirmware
 from .models.common import CommonProperties
 from .models.pvs import PVSData
-
-# isort: off
 from .pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError, PVSFCGIClientPostError
-
-# isort: on
 from .pvs_websocket import PVSWebSocket
 from .updaters.base import PVSUpdater
 from .updaters.ess import PVSESSUpdater
@@ -94,7 +85,7 @@ class PVS:
             raise PVSCommunicationError(
                 f"POST request failed: {err}", status=err.status
             ) from err
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        except (TimeoutError, aiohttp.ClientError) as err:
             raise PVSCommunicationError(f"Cannot reach the PVS: {err}") from err
         except Exception as err:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err

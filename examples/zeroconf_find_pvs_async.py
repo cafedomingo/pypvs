@@ -1,6 +1,5 @@
 import asyncio
 import socket
-from typing import Optional
 
 from aiohttp import ClientSession
 from zeroconf import ServiceBrowser, Zeroconf
@@ -11,7 +10,7 @@ from pypvs.pvs import PVS
 class DeviceListener:
     def __init__(self, target_hostnames: list[str]):
         self.target_hostnames = target_hostnames
-        self.ip_address: Optional[str] = None
+        self.ip_address: str | None = None
 
     def remove_service(self, zeroconf, type, name):
         pass

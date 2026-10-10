@@ -1,6 +1,5 @@
 """Python wrapper for SunStrong Management PVS API."""
 
-# isort: off
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -8,11 +7,9 @@ from .exceptions import (
     PVSError,
     PVSFirmwareCheckError,
 )
-
-# isort: on
 from .models.inverter import PVSInverter
 from .models.livedata import PVSLiveData
-from .pvs import PVS
+from .pvs import PVS, register_updater
 from .pvs_websocket import ConnectionState, PVSWebSocket
 
 __all__ = (

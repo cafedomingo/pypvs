@@ -22,9 +22,7 @@ def float_var(
         return default
 
 
-def int_var(
-    data: dict[str, Any], key: str, default: int | None = None
-) -> int | None:
+def int_var(data: dict[str, Any], key: str, default: int | None = None) -> int | None:
     v = data.get(key)
     if v is None:
         return default

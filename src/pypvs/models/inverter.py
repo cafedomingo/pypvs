@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from .varserver_coerce import float_var, str_var
 
@@ -44,16 +44,16 @@ class PVSInverter:
 
     serial_number: str
     model: str
-    last_report_date: Optional[int] = None
-    last_report_kw: Optional[float] = None
-    last_report_voltage_v: Optional[float] = None
-    last_report_current_a: Optional[float] = None
-    last_report_frequency_hz: Optional[float] = None
-    last_report_temperature_c: Optional[float] = None
-    lte_kwh: Optional[float] = None
-    last_mppt_voltage_v: Optional[float] = None
-    last_mppt_current_a: Optional[float] = None
-    last_mppt_power_kw: Optional[float] = None
+    last_report_date: int | None = None
+    last_report_kw: float | None = None
+    last_report_voltage_v: float | None = None
+    last_report_current_a: float | None = None
+    last_report_frequency_hz: float | None = None
+    last_report_temperature_c: float | None = None
+    lte_kwh: float | None = None
+    last_mppt_voltage_v: float | None = None
+    last_mppt_current_a: float | None = None
+    last_mppt_power_kw: float | None = None
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSInverter:
@@ -62,9 +62,7 @@ class PVSInverter:
 
         date_str = str_var(data, "msmtEps", "1970-01-01T00:00:00Z")
         try:
-            dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(
-                tzinfo=timezone.utc
-            )
+            dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
             last_report_date = int(dt.timestamp())
         except Exception:
             last_report_date = 0

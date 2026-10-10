@@ -1,6 +1,7 @@
 """PVS Firmware detection"""
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .exceptions import PVSFirmwareCheckError
 
@@ -27,7 +28,7 @@ class PVSFirmware:
         except KeyError as e:
             raise PVSFirmwareCheckError(
                 f"Cannot extract system information from response {e}"
-            )
+            ) from e
 
     @property
     def serial(self) -> str | None:

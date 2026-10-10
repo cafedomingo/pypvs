@@ -1,6 +1,7 @@
 import logging
 from abc import abstractmethod
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from ..const import SupportedFeatures
 from ..models.common import CommonProperties
