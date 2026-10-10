@@ -1,10 +1,9 @@
-"""Tests for parsing varserver payloads into models.
-"""
+"""Tests for parsing varserver payloads into models."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -19,9 +18,9 @@ from pypvs.models.meter import PVSMeter
 from pypvs.models.transfer_switch import PVSTransferSwitch
 
 # Canonical sample instant for msmtEps and /sys/livedata/time in this module.
-SAMPLE_TS_UTC = datetime.strptime(
-    "2026-04-10T11:30:00Z", "%Y-%m-%dT%H:%M:%SZ"
-).replace(tzinfo=timezone.utc)
+SAMPLE_TS_UTC = datetime.strptime("2026-04-10T11:30:00Z", "%Y-%m-%dT%H:%M:%SZ").replace(
+    tzinfo=UTC
+)
 SAMPLE_UNIX = int(SAMPLE_TS_UTC.timestamp())
 
 # --- Inverter

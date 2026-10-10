@@ -46,7 +46,7 @@ class PVSFCGIClient:
 
         # The PVS uses basic authentication with the username and password
         auth_token = base64.b64encode(
-            f"{self.auth_user}:{self.auth_password}".encode("utf-8")
+            f"{self.auth_user}:{self.auth_password}".encode()
         ).decode()
         headers = {"Authorization": f"basic {auth_token}"}
         await self.login(headers=headers)

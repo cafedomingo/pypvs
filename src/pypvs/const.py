@@ -19,11 +19,8 @@ class SupportedFeatures(enum.IntFlag):
     TRANSFER_SWITCH = 16  #: PVS reports transfer switch
 
 
-# TODO: fix until moved to Python 3.11
-class StrEnum(str, enum.Enum):
-    """Enum with string values."""
-
-    pass
+# Kept as a name in this module for callers that imported it from here.
+StrEnum = enum.StrEnum
 
 
 class PhaseNames(StrEnum):

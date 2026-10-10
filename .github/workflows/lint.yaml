@@ -11,15 +11,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
-    - uses: actions/setup-python@v7
-      with:
-        python-version: "3.14"
-    # Install linters
-    - run: pip install black flake8 isort
-    # Run linters
-    - run: flake8
-      continue-on-error: true
-    - run: black --check .
-      continue-on-error: true
-    - run: isort . --check
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[test]"
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .

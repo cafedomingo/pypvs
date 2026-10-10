@@ -30,9 +30,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            meters_dict: dict[str, Any] = await self._request_vars(
-                VARS_MATCH_METERS
-            )
+            meters_dict: dict[str, Any] = await self._request_vars(VARS_MATCH_METERS)
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("Meter data unavailable: %s", e)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # Canonical field definitions for livedata.
@@ -31,8 +31,7 @@ LIVEDATA_FIELD_DEFINITIONS: tuple[tuple[str, str, str, str], ...] = (
 
 # Mapping from varserver path to attribute name (derived from field definitions)
 _VAR_PATH_TO_ATTR: dict[str, str] = {
-    var_path: attr_name
-    for _, var_path, attr_name, _ in LIVEDATA_FIELD_DEFINITIONS
+    var_path: attr_name for _, var_path, attr_name, _ in LIVEDATA_FIELD_DEFINITIONS
 }
 
 
@@ -141,7 +140,7 @@ class PVSLiveData:
             return None
         try:
             timestamp = int(value) if isinstance(value, str) else int(value)
-            current_time = datetime.now(timezone.utc).timestamp()
+            current_time = datetime.now(UTC).timestamp()
 
             # Detect milliseconds vs seconds
             if timestamp > current_time + (365 * 24 * 3600):
@@ -151,6 +150,6 @@ class PVSLiveData:
             if timestamp < 0 or timestamp > current_time + (365 * 24 * 3600):
                 return None
 
-            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            return datetime.fromtimestamp(timestamp, tz=UTC)
         except (ValueError, TypeError, OSError):
             return None

@@ -27,7 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 examples = ["zeroconf"]
-test = ["pytest"]
+test = ["pytest", "ruff==0.16.9"]
 
 [project.urls]
 Homepage = "https://github.com/cafedomingo/pypvs"
@@ -45,3 +45,21 @@ include-package-data = true
 write_to = "src/pypvs/_version.py"
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = ["src/pypvs/_version.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pypvs"]

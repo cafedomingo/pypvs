@@ -1,13 +1,10 @@
-import asyncio
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import aiohttp
 
 from .const import VAR_UPTIME, SupportedFeatures
-
-# isort: off
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -15,16 +12,10 @@ from .exceptions import (
     PVSError,
     PVSProbeFailed,
 )
-
-# isort: on
 from .firmware import PVSFirmware
 from .models.common import CommonProperties
 from .models.pvs import PVSData
-
-# isort: off
 from .pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError, PVSFCGIClientPostError
-
-# isort: on
 from .pvs_websocket import PVSWebSocket
 from .updaters.base import PVSUpdater
 from .updaters.ess import PVSESSUpdater
@@ -92,7 +83,7 @@ class PVS:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
         except PVSFCGIClientPostError as err:
             raise PVSCommunicationError(f"POST request failed: {err}") from err
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        except (TimeoutError, aiohttp.ClientError) as err:
             raise PVSCommunicationError(f"Cannot reach the PVS: {err}") from err
         except Exception as err:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
@@ -191,12 +182,10 @@ class PVS:
             now = time.monotonic()
             if (
                 self._inverter_last_reprobe is None
-                or now - self._inverter_last_reprobe
-                >= self._inverter_reprobe_interval
+                or now - self._inverter_last_reprobe >= self._inverter_reprobe_interval
             ):
                 _LOGGER.debug(
-                    "Inverters not yet discovered, re-probing "
-                    "(next retry in %ds)",
+                    "Inverters not yet discovered, re-probing (next retry in %ds)",
                     self._inverter_reprobe_interval,
                 )
                 self._inverter_last_reprobe = now
