@@ -33,9 +33,22 @@ CORE_VARS = (
     VAR_FLASHWEAR,
 )
 OPTIONAL_CORE_VARS = frozenset({VAR_FLASHWEAR})
-#: documented interfaces: PVS6 (wan0, wan1, sta0, wwan0), PVS5 (wan, cell, plc)
-INTERFACES = ("wan0", "wan1", "sta0", "wwan0", "wan", "cell", "plc")
-#: read every few minutes, all optional; a PVS answers 400 for names it lacks
+#: documented interfaces per model (doc/varserver-variables-public-*.csv)
+INTERFACES_BY_MODEL = {
+    "PVS6": ("wan0", "wan1", "sta0", "wwan0"),
+    "PVS5": ("wan", "cell", "plc", "sta0"),
+}
+INTERFACES = tuple(dict.fromkeys(n for ns in INTERFACES_BY_MODEL.values() for n in ns))
+
+
+def interface_vars(model: str | None) -> tuple[str, ...]:
+    """/net/{name}/state for the model's interfaces; all known names if the
+    model is unknown."""
+    names = INTERFACES_BY_MODEL.get((model or "").strip(), INTERFACES)
+    return tuple(f"/net/{name}/state" for name in names)
+
+
+#: read every few minutes with the interface states, all optional
 EXTRA_VARS = (
     VAR_FWREV,
     VAR_BOARDTYPE,
@@ -46,7 +59,6 @@ EXTRA_VARS = (
     VAR_LOW_DATA_MODE,
     ESS_RESERVE_SOC,
     ESS_CONTROL_MODE,
-    *(f"/net/{name}/state" for name in INTERFACES),
 )
 _PLACEHOLDERS = {"", "TBD"}
 

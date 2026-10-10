@@ -4,7 +4,13 @@ from typing import Any
 
 from ..const import VARS_MATCH_INFO, SupportedFeatures
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
-from ..models.gateway import CORE_VARS, EXTRA_VARS, OPTIONAL_CORE_VARS, PVSGateway
+from ..models.gateway import (
+    CORE_VARS,
+    EXTRA_VARS,
+    OPTIONAL_CORE_VARS,
+    PVSGateway,
+    interface_vars,
+)
 from ..models.pvs import PVSData
 from .base import PVSUpdater
 
@@ -17,12 +23,10 @@ EXTRAS_REFRESH_S = 300
 # The PVS answers 400 for a variable it doesn't have. That can be temporary
 # (services still starting, a battery commissioned later), so ask again later.
 UNSUPPORTED_RETRY_S = 3600
+# An empty answer may be a blip; drop the cached value only once it repeats.
+EMPTY_REFRESHES_BEFORE_DROP = 3
 
 _MISSING = object()
-
-
-def _is_unsupported(error: PVSError) -> bool:
-    return isinstance(error, PVSCommunicationError) and error.status == HTTP_BAD_REQUEST
 
 
 class PVSGatewayUpdater(PVSUpdater):
@@ -34,6 +38,8 @@ class PVSGatewayUpdater(PVSUpdater):
         self._unsupported_vars: dict[str, float] = {}
         self._extras: dict[str, Any] = {}
         self._extras_at: float | None = None
+        # var name -> consecutive refreshes it came back empty
+        self._empty_count: dict[str, int] = {}
 
     async def probe(
         self, discovered_features: SupportedFeatures
@@ -57,7 +63,7 @@ class PVSGatewayUpdater(PVSUpdater):
         except PVSDataFormatError:
             return _MISSING
         except PVSCommunicationError as e:
-            if not _is_unsupported(e):
+            if e.status != HTTP_BAD_REQUEST:
                 raise
             _LOGGER.debug("PVS does not support %s", name)
             self._unsupported_vars[name] = now
@@ -80,25 +86,39 @@ class PVSGatewayUpdater(PVSUpdater):
                 sys_info[name] = await self._request_var(name)
 
         if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
-            await self._refresh_extras(now)
+            model = sys_info.get("/sys/info/model")
+            await self._refresh_extras(now, EXTRA_VARS + interface_vars(model))
 
         sys_info.update(self._extras)
         pvs_data.raw[VARS_MATCH_INFO] = sys_info
         pvs_data.gateway = PVSGateway.from_varserver(sys_info)
 
-    async def _refresh_extras(self, now: float) -> None:
-        """Best effort and never fails the gateway update: a variable the PVS
-        lacks is dropped; any other failure keeps the previous values and ends
-        this refresh, so a slow PVS costs one timeout, not one per variable."""
+    async def _refresh_extras(self, now: float, names: tuple[str, ...]) -> None:
+        """Best effort and never fails the gateway update. A variable the PVS
+        lacks (400) is dropped; one that keeps answering empty is dropped after
+        a few refreshes; any other error skips just that variable, keeping its
+        last value. Only an unreachable PVS (no HTTP status) ends the refresh
+        early, so a slow PVS costs one timeout rather than one per variable."""
         self._extras_at = now
-        for name in EXTRA_VARS:
+        for name in names:
             try:
                 value = await self._read(name, now)
+            except PVSCommunicationError as e:
+                if e.status is None:
+                    _LOGGER.debug("PVS unreachable; keeping gateway extras: %s", e)
+                    return
+                _LOGGER.debug("Keeping last value of %s: %s", name, e)
+                continue
             except PVSError as e:
-                _LOGGER.debug("Keeping previous gateway extras: %s", e)
-                return
-            if value is _MISSING:
-                if name in self._unsupported_vars:
-                    self._extras.pop(name, None)
-            else:
+                _LOGGER.debug("Keeping last value of %s: %s", name, e)
+                continue
+            if value is not _MISSING:
                 self._extras[name] = value
+                self._empty_count.pop(name, None)
+            elif name in self._unsupported_vars:
+                self._extras.pop(name, None)
+            else:
+                empties = self._empty_count.get(name, 0) + 1
+                self._empty_count[name] = empties
+                if empties >= EMPTY_REFRESHES_BEFORE_DROP:
+                    self._extras.pop(name, None)
