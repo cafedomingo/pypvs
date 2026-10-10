@@ -5,9 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 
+import aiohttp
 import pytest
 
-from pypvs.exceptions import PVSAuthenticationError, PVSDataFormatError
+from pypvs.exceptions import (
+    PVSAuthenticationError,
+    PVSCommunicationError,
+    PVSDataFormatError,
+)
 from pypvs.pvs import PVS
 from pypvs.pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError
 
@@ -29,17 +34,25 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, vars_body=None, login_status=200):
+    def __init__(self, vars_body=None, login_status=200, vars_status=200):
         self.vars_body = vars_body if vars_body is not None else {"values": []}
         self.login_status = login_status
+        self.vars_status = vars_status
         self.posts = []
+        self.logins = 0
 
     def get(self, url, headers=None, ssl=None):
+        self.logins += 1
         return FakeResponse(self.login_status, "bad password")
 
     def post(self, url, cookies=None, data=None, ssl=None):
         self.posts.append(data)
-        return FakeResponse(200, json.dumps(self.vars_body))
+        return FakeResponse(self.vars_status, json.dumps(self.vars_body))
+
+
+class UnreachableSession(FakeSession):
+    def post(self, url, cookies=None, data=None, ssl=None):
+        raise aiohttp.ClientConnectionError("connection refused")
 
 
 def make_client(session):
@@ -87,3 +100,25 @@ def test_malformed_vars_response_raises_data_format_error():
     pvs = make_pvs(FakeSession(vars_body={"unexpected": True}))
     with pytest.raises(PVSDataFormatError, match="unexpected"):
         asyncio.run(pvs.getVarserverVars("/sys/info"))
+
+
+def test_server_error_is_a_communication_error_not_a_relogin():
+    session = FakeSession(vars_status=500)
+    pvs = make_pvs(session)
+    with pytest.raises(PVSCommunicationError):
+        asyncio.run(pvs.getVarserverVar("/sys/info/uptime"))
+    assert session.logins == 1
+
+
+def test_expired_session_triggers_one_relogin():
+    session = FakeSession(vars_status=401)
+    pvs = make_pvs(session)
+    with pytest.raises(PVSAuthenticationError):
+        asyncio.run(pvs.getVarserverVar("/sys/info/uptime"))
+    assert session.logins == 2
+
+
+def test_unreachable_pvs_is_a_communication_error():
+    pvs = make_pvs(UnreachableSession())
+    with pytest.raises(PVSCommunicationError, match="Cannot reach the PVS"):
+        asyncio.run(pvs.getVarserverVar("/sys/info/uptime"))

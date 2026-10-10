@@ -1,6 +1,9 @@
+import asyncio
 import logging
 import time
 from typing import Callable
+
+import aiohttp
 
 from .const import VAR_UPTIME, SupportedFeatures
 
@@ -89,6 +92,8 @@ class PVS:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
         except PVSFCGIClientPostError as err:
             raise PVSCommunicationError(f"POST request failed: {err}") from err
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise PVSCommunicationError(f"Cannot reach the PVS: {err}") from err
         except Exception as err:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
 
