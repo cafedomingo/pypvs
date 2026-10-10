@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,9 +66,10 @@ class PVSFCGIClient:
         # TODO: Ignore certificate errors for now
         async with self.session.get(login_url, headers=headers, ssl=False) as response:
             if response.status != 200:
+                body = await response.text()
                 raise PVSFCGIClientLoginError(
                     f"Login failed with status code: {response.status}"
-                    f" and response: {response.text}"
+                    f" and response: {body[:200]}"
                 )
 
             self.cookies = response.cookies
@@ -82,7 +84,6 @@ class PVSFCGIClient:
 
             if response.status == 200:
                 _LOGGER.debug("POST request successful!")
-                import json
                 return json.loads(response_body)
             elif response.status in [401, 500]:
                 # Session expired or invalid — caller should re-authenticate
@@ -128,7 +129,9 @@ class PVSFCGIClient:
             )
 
         url = f"{self._pvs_url}{endpoint}"
-        payload_str = "".join([f"{key}={value}" for key, value in params.items()])
+        payload_str = "&".join(
+            f"{key}={value}" for key, value in (params or {}).items()
+        )
         _LOGGER.debug(
             f"POST request to {url} with payload: {payload_str} "
             f"and cookies: {self.cookies}"
