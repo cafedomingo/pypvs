@@ -39,6 +39,9 @@ Reference of PVS Gateway public variables
 Documentation of Legacy API
 - [Legacy API](doc/dl_cgi.md)
 
+How pypvs limits load on the PVS (query caching, batched reads)
+- [Caching](doc/Caching.md)
+
 
 ## Run Locally
 
