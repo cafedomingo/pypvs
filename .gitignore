@@ -12,12 +12,14 @@ dist/
 .venv/
 venv/
 .env
+.python-version
 
 # Tool caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
 
 # Editors and OS

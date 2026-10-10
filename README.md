@@ -21,10 +21,10 @@ You can verify the installed firmware version in the **SunStrong Connect** mobil
 
 ## Installation
 
-This is a fork of [SunStrong-Management/pypvs](https://github.com/SunStrong-Management/pypvs). It is not published to PyPI; install a [release](https://github.com/cafedomingo/pypvs/releases) tag from git:
+This is a fork of [SunStrong-Management/pypvs](https://github.com/SunStrong-Management/pypvs). It is not published to PyPI; install it from git, replacing `vX.Y.Z` with the latest [release](https://github.com/cafedomingo/pypvs/releases) tag:
 
 ```bash
-pip install "pypvs @ git+https://github.com/cafedomingo/pypvs@v0.3.0"
+pip install "pypvs @ git+https://github.com/cafedomingo/pypvs@vX.Y.Z"
 ```
     
 ## Documentation
