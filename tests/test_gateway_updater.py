@@ -59,6 +59,7 @@ class FakePVS:
         self.values = values
         self.failures = failures or {}
         self.calls = []
+        self.batches = []
 
     async def request_var(self, name):
         self.calls.append(name)
@@ -71,11 +72,21 @@ class FakePVS:
     async def request_vars(self, match):
         raise AssertionError("the gateway updater should not use match queries")
 
-    def updater(self):
+    async def request_named_vars(self, names):
+        self.batches.append(list(names))
+        for name in names:
+            if name in self.failures:
+                raise self.failures[name]
+        if any(name not in self.values for name in names):
+            raise BAD_REQUEST  # the PVS rejects the whole request
+        return {name: self.values[name] for name in names}
+
+    def updater(self, batched=False):
         return PVSGatewayUpdater(
             request_var=self.request_var,
             request_vars=self.request_vars,
             common_properties=CommonProperties(),
+            request_named_vars=self.request_named_vars if batched else None,
         )
 
 
@@ -314,3 +325,57 @@ def test_a_value_that_stays_empty_is_dropped(monkeypatch):
         assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
     clock.now += gateway_module.EXTRAS_REFRESH_S
     assert run(updater).ess_control_mode is None
+
+
+def test_batched_core_and_extras_take_two_requests():
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    gw = run(pvs.updater(batched=True))
+    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert gw.uptime_s == 81436.77
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"
+    assert gw.interface_states["wan0"] == "online"
+
+
+def test_batched_without_flashwear_falls_back_once(monkeypatch):
+    clock = Clock(monkeypatch)
+    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/pvs/flashwear_type_b"}
+    pvs = FakePVS({**values, **EXTRAS, **NET})
+    updater = pvs.updater(batched=True)
+    assert run(updater).flashwear_type_b_percent is None
+    pvs.calls.clear()
+    pvs.batches.clear()
+    clock.now += 30
+    gw = run(updater)
+    assert pvs.calls == [] and len(pvs.batches) == 1
+    assert "/sys/pvs/flashwear_type_b" not in pvs.batches[0]
+    assert gw.uptime_s == 81436.77
+
+
+def test_batched_a_missing_required_var_fails_the_update():
+    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/info/uptime"}
+    with pytest.raises(PVSCommunicationError):
+        run(FakePVS(values).updater(batched=True))
+
+
+def test_batched_a_server_error_on_flashwear_still_fails_the_update():
+    """Only a 400 means flashwear is unsupported; a 500 is a real failure."""
+    pvs = FakePVS(
+        SYS_INFO,
+        failures={
+            "/sys/pvs/flashwear_type_b": PVSCommunicationError("HTTP 500", status=500)
+        },
+    )
+    with pytest.raises(PVSCommunicationError):
+        run(pvs.updater(batched=True))
+
+
+def test_batched_extras_keep_their_values_through_errors(monkeypatch):
+    clock = Clock(monkeypatch)
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    updater = pvs.updater(batched=True)
+    run(updater)
+    pvs.failures["/sys/info/boardtype"] = PVSCommunicationError("HTTP 500", status=500)
+    clock.now += gateway_module.EXTRAS_REFRESH_S
+    gw = run(updater)
+    assert gw.board_type == "A0K LIB 1.0 PSoC5"  # kept
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"  # read singly

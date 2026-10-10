@@ -9,6 +9,9 @@ VARS_MATCH_TRANSFER_SWITCH = "/sys/devices/transfer_switch/"
 VARS_MATCH_INFO = "/sys/info"
 VAR_UPTIME = "/sys/info/uptime"
 
+#: the PVS answers 400 for an unknown variable or an empty match
+HTTP_BAD_REQUEST = 400
+
 
 class SupportedFeatures(enum.IntFlag):
     """Features available from the PVS. Features form a bitmask."""

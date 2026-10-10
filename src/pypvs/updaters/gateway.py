@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any
 
-from ..const import VARS_MATCH_INFO, SupportedFeatures
+from ..const import HTTP_BAD_REQUEST, VARS_MATCH_INFO, SupportedFeatures
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
 from ..models.gateway import (
     CORE_VARS,
@@ -13,20 +13,17 @@ from ..models.gateway import (
 )
 from ..models.pvs import PVSData
 from .base import PVSUpdater
+from .named_reader import UNSUPPORTED_RETRY_S, NamedVarReader
 
 _LOGGER = logging.getLogger(__name__)
 
-HTTP_BAD_REQUEST = 400
 # Extras (network, cloud, battery config, board info) change rarely, so they
 # are fetched every few minutes rather than on every poll.
 EXTRAS_REFRESH_S = 300
-# The PVS answers 400 for a variable it doesn't have. That can be temporary
-# (services still starting, a battery commissioned later), so ask again later.
-UNSUPPORTED_RETRY_S = 3600
 # An empty answer may be a blip; drop the cached value only once it repeats.
 EMPTY_REFRESHES_BEFORE_DROP = 3
 
-_MISSING = object()
+__all__ = ["PVSGatewayUpdater", "EXTRAS_REFRESH_S", "UNSUPPORTED_RETRY_S"]
 
 
 class PVSGatewayUpdater(PVSUpdater):
@@ -34,8 +31,16 @@ class PVSGatewayUpdater(PVSUpdater):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # var name -> monotonic time the PVS answered 400 for it
-        self._unsupported_vars: dict[str, float] = {}
+        self._core = NamedVarReader(
+            "core", self._request_var, self._request_named_vars, OPTIONAL_CORE_VARS
+        )
+        # every extra is optional; the set is per PVS model, so pass it in full
+        self._extras_reader = NamedVarReader(
+            "extras",
+            self._request_var,
+            self._request_named_vars,
+            EXTRA_VARS + interface_vars(None),
+        )
         self._extras: dict[str, Any] = {}
         self._extras_at: float | None = None
         # var name -> consecutive refreshes it came back empty
@@ -51,39 +56,23 @@ class PVSGatewayUpdater(PVSUpdater):
         self._supported_features |= SupportedFeatures.GATEWAY
         return self._supported_features
 
-    async def _read(self, name: str, now: float) -> Any:
-        """Read one variable. Returns _MISSING when the PVS doesn't have it
-        (400, remembered for UNSUPPORTED_RETRY_S) or answered without a value;
-        other errors propagate."""
-        marked = self._unsupported_vars.get(name)
-        if marked is not None and now - marked < UNSUPPORTED_RETRY_S:
-            return _MISSING
-        try:
-            value = await self._request_var(name)
-        except PVSDataFormatError:
-            return _MISSING
-        except PVSCommunicationError as e:
-            if e.status != HTTP_BAD_REQUEST:
-                raise
-            _LOGGER.debug("PVS does not support %s", name)
-            self._unsupported_vars[name] = now
-            return _MISSING
-        self._unsupported_vars.pop(name, None)
-        return value
-
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         now = time.monotonic()
-        sys_info: dict[str, Any] = {}
-
-        # individual vars rather than a match, as the match takes a long time
+        values, errors = await self._core.read(CORE_VARS, now)
         for name in CORE_VARS:
-            if name in OPTIONAL_CORE_VARS:
-                value = await self._read(name, now)
-                if value is not _MISSING:
-                    sys_info[name] = value
-            else:
-                sys_info[name] = await self._request_var(name)
+            if name in values:
+                continue
+            error = errors.get(name)
+            if name not in OPTIONAL_CORE_VARS:
+                raise error or PVSDataFormatError(f"The PVS did not return {name}")
+            # an optional var may be missing (400) or empty, not failing
+            if (
+                isinstance(error, PVSCommunicationError)
+                and error.status != HTTP_BAD_REQUEST
+            ):
+                raise error
+        sys_info: dict[str, Any] = dict(values)
 
         if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
             model = sys_info.get("/sys/info/model")
@@ -96,29 +85,25 @@ class PVSGatewayUpdater(PVSUpdater):
     async def _refresh_extras(self, now: float, names: tuple[str, ...]) -> None:
         """Best effort and never fails the gateway update. A variable the PVS
         lacks (400) is dropped; one that keeps answering empty is dropped after
-        a few refreshes; any other error skips just that variable, keeping its
-        last value. Only an unreachable PVS (no HTTP status) ends the refresh
-        early, so a slow PVS costs one timeout rather than one per variable."""
+        a few refreshes; any other error keeps its last value. If the PVS is
+        unreachable (or the login fails) every last value is kept until the next
+        refresh."""
         self._extras_at = now
+        try:
+            values, errors = await self._extras_reader.read(names, now)
+        except PVSError as e:  # unreachable, login failed, ...
+            _LOGGER.debug("Keeping previous gateway extras: %s", e)
+            return
         for name in names:
-            try:
-                value = await self._read(name, now)
-            except PVSCommunicationError as e:
-                if e.status is None:
-                    _LOGGER.debug("PVS unreachable; keeping gateway extras: %s", e)
-                    return
-                _LOGGER.debug("Keeping last value of %s: %s", name, e)
-                continue
-            except PVSError as e:
-                _LOGGER.debug("Keeping last value of %s: %s", name, e)
-                continue
-            if value is not _MISSING:
-                self._extras[name] = value
+            if name in values:
+                self._extras[name] = values[name]
                 self._empty_count.pop(name, None)
-            elif name in self._unsupported_vars:
+            elif self._extras_reader.is_unsupported(name, now):
                 self._extras.pop(name, None)
-            else:
+            elif isinstance(errors.get(name), PVSDataFormatError):
                 empties = self._empty_count.get(name, 0) + 1
                 self._empty_count[name] = empties
                 if empties >= EMPTY_REFRESHES_BEFORE_DROP:
                     self._extras.pop(name, None)
+            elif name in errors:
+                _LOGGER.debug("Keeping last value of %s: %s", name, errors[name])

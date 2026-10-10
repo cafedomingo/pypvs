@@ -1,6 +1,7 @@
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 import aiohttp
 
@@ -112,6 +113,21 @@ class PVS:
                 f"Cannot extract {varname} from response {response_data}"
             ) from err
 
+    async def getVarserverVarsByName(self, names: list[str]) -> dict[str, Any]:
+        """Read several variables in one request. The PVS answers 400 for the
+        whole request if any of the names is unknown."""
+        if not names:
+            return {}
+        response_data = await self.getVarserver(
+            "/vars", params={"name": ",".join(names)}
+        )
+        try:
+            return {item["name"]: item["value"] for item in response_data["values"]}
+        except (KeyError, TypeError) as err:
+            raise PVSDataFormatError(
+                f"Cannot construct dictionary from response {response_data}"
+            ) from err
+
     async def getVarserverVars(self, match):
         response_data = await self.getVarserver("/vars", params={"match": match})
 
@@ -159,6 +175,7 @@ class PVS:
             klass = updater(
                 request_var=self.getVarserverVar,
                 request_vars=self.getVarserverVars,
+                request_named_vars=self.getVarserverVarsByName,
                 common_properties=self._common_properties,
             )
             if updater_features := await klass.probe(supported_features):
