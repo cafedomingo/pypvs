@@ -12,14 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out with full history (for setuptools_scm)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0   # ensures tags are available
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Install build tools
         run: |
@@ -31,7 +31,7 @@ jobs:
 
       - name: Publish to PyPI (Trusted Publishing)
         # ensure that GH was added as a trusted publisher in PiPY
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@v1.14.2
         # comment out when not testing on TestPyPI
         # with:
         #   repository-url: https://test.pypi.org/legacy/
