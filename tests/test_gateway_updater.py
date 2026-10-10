@@ -462,3 +462,18 @@ def test_a_failing_extras_batch_does_not_disable_core_batching(monkeypatch):
         clock.now += gateway_module.EXTRAS_REFRESH_S
     core = [b for b in pvs.batches if "/sys/info/uptime" in b]
     assert len(core) == 5  # core batching unaffected
+
+
+def test_an_extras_batch_missing_a_name_reads_it_alone():
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    real = pvs.request_named_vars
+
+    async def short(names):
+        values = await real(names)
+        values.pop("/sys/info/boardtype", None)
+        return values
+
+    pvs.request_named_vars = short
+    gw = run(pvs.updater(batched=True))
+    assert gw.board_type == "A0K LIB 1.0 PSoC5"
+    assert pvs.calls == ["/sys/info/boardtype"]

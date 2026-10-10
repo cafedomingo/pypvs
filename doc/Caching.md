@@ -9,8 +9,9 @@ CPU is already busy. pypvs follows that with three mechanisms.
 
 The device updaters (inverters, meters, ESS, transfer switch) read their
 groups with match queries, and so does any caller of `getVarserverVars` (a
-metrics exporter polling `/sys/livedata`, say). The first query for a match is
-plain, so one-off queries leave nothing behind on the PVS. From the second on,
+metrics exporter polling `/sys/livedata`, say). The first successful query for a
+match (and the first after a full reset) is plain, so one-off queries leave
+nothing behind on the PVS. From the second on,
 pypvs creates a PVS-side cache once and afterwards only reads it:
 
 ```
@@ -35,14 +36,15 @@ Because the name set is frozen, the cache is rebuilt:
 | when the host changes | the caches, and whether `cache=` works, belong to another PVS |
 
 Re-creating a cache id that already exists simply replaces it (checked on a
-PVS6). An answer to `match+cache` with no values creates no cache, so it costs
-the same as an uncached match.
+PVS6). If `match+cache` ever answers with no values, pypvs doesn't record a
+cache and tries again next time. (A PVS6 answers an empty match with 400.)
 
 The PVS answers 400 both for "nothing matches" (inverters asleep after the
 nightly restart) and, possibly, for a firmware that rejects `cache=`. Until a
 cache has been created once, a 400 on `match+cache` is followed by a plain
 match to tell the two apart: if the plain match works, that match is marked
-uncacheable (cleared again on the next probe); if it also answers 400, nothing
+uncacheable (cleared again on the next probe, or for the inverter match on
+an inverter re-probe); if it also answers 400, nothing
 matches and the error is raised as an uncached match would. Once any cache has
 worked, a 400 simply means nothing matches, so a night-time inverter query
 costs one request, not two.
@@ -68,8 +70,8 @@ The PVS rejects the **whole** request with 400 if any name is unknown. So:
   one by one, which records any unknown name so later batches leave it out; a
   200 that leaves a name out keeps the rest and reads just the gap;
 - the core and extras batches are tracked separately: after three fallbacks in
-  a row one of them stops batching (logged once) and tries again after an
-  hour.
+  a row (including a 200 that leaves names out) one of them stops batching,
+  logged once, and tries a single batch again every hour.
 
 `PVSUpdater` takes an optional `request_named_vars`; updaters that don't use it
 are unaffected.

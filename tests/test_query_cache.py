@@ -40,6 +40,11 @@ class FakeVarserver:
 
     async def __call__(self, endpoint, params=None):
         self.requests.append(dict(params))
+        if "name" in params:
+            names = params["name"].split(",")
+            if any(n not in self.vars for n in names):
+                raise PVSCommunicationError("HTTP 400: 0x0100", status=400)
+            return self.answer(names)
         if "cache" in params and not self.supports_cache:
             raise PVSCommunicationError("HTTP 400: 0x0040", status=400)
         if "match" in params:
@@ -71,6 +76,13 @@ def query(pvs, match="/sys/devices/inverter/"):
     return asyncio.run(pvs.getVarserverVars(match))
 
 
+def warm(pvs, match="/sys/devices/inverter/"):
+    """Use a match twice: the first query is plain, the second creates the
+    cache, so later queries go through it."""
+    query(pvs, match)
+    query(pvs, match)
+
+
 def test_a_match_is_cached_from_its_second_use():
     """A one-off match leaves no cache on the PVS; a repeated one is cached."""
     server = FakeVarserver(INVERTERS)
@@ -88,19 +100,25 @@ def test_a_match_is_cached_from_its_second_use():
 def test_cached_reads_return_current_values():
     server = FakeVarserver(INVERTERS)
     pvs = make_pvs(server)
-    query(pvs)
+    warm(pvs)
     server.vars["/sys/devices/inverter/0/p3phsumKw"] = "0.31"
     assert query(pvs)["/sys/devices/inverter/0/p3phsumKw"] == "0.31"
+    assert server.requests[-1] == {"cache": query_cache_id("/sys/devices/inverter/")}
 
 
 def test_a_lost_cache_is_recreated_transparently():
     """The PVS restarts nightly and forgets its caches."""
     server = FakeVarserver(INVERTERS)
     pvs = make_pvs(server)
-    query(pvs)
+    warm(pvs)
     server.restart()
+    server.requests.clear()
     assert query(pvs) == INVERTERS
-    assert server.requests[-1]["match"] == "/sys/devices/inverter/"
+    cache_id = query_cache_id("/sys/devices/inverter/")
+    assert server.requests == [
+        {"cache": cache_id},  # 400: the PVS forgot it
+        {"match": "/sys/devices/inverter/", "cache": cache_id},
+    ]
 
 
 def test_no_devices_raises_like_an_uncached_match_and_recovers_later():
@@ -164,7 +182,7 @@ def test_probing_rebuilds_the_cache():
     reported; a re-probe must see the PVS as it is now, not that name set."""
     server = FakeVarserver({"/sys/devices/inverter/0/p3phsumKw": "0.1"})  # no sn yet
     pvs = make_pvs(server)
-    query(pvs)
+    warm(pvs)
     server.vars.update(INVERTERS)
     pvs.reset_query_caches()  # what probe() does first
     assert "/sys/devices/inverter/0/sn" in query(pvs)
@@ -173,7 +191,7 @@ def test_probing_rebuilds_the_cache():
 def test_an_empty_cached_read_rebuilds_the_cache():
     server = FakeVarserver(INVERTERS)
     pvs = make_pvs(server)
-    query(pvs)
+    warm(pvs)
     for name in INVERTERS:
         del server.vars[name]  # devices vanished but the cache survived
     server.vars["/sys/devices/inverter/1/sn"] = "B"
@@ -213,22 +231,27 @@ def test_named_reads_parse_and_reject_malformed_answers():
 def test_once_caching_works_an_empty_match_costs_one_request():
     """At night the inverter match has no results; with caching known to work
     that must not turn into two full-namespace queries."""
-    server = FakeVarserver(METER)
+    server = FakeVarserver({**METER, **INVERTERS})
     pvs = make_pvs(server)
-    query(pvs, "/sys/devices/meter/")  # caching works here
+    warm(pvs)  # caching works
+    for name in INVERTERS:
+        del server.vars[name]  # the nightly restart: no inverters, no caches
+    server.restart()
     server.requests.clear()
     with pytest.raises(PVSCommunicationError):
         query(pvs)
-    assert len(server.requests) == 1
+    # the cache read and its rebuild; no extra plain match to disambiguate
+    assert [("match" in r) for r in server.requests] == [False, True]
 
 
 def test_a_probe_retries_caching_for_a_match_marked_uncacheable():
     server = FakeVarserver(INVERTERS, supports_cache=False)
     pvs = make_pvs(server)
-    query(pvs)
+    warm(pvs)  # the second query finds cache= rejected
+    assert "/sys/devices/inverter/" in pvs._uncacheable
     server.supports_cache = True  # e.g. a firmware update
     pvs.reset_query_caches()
-    query(pvs)
+    warm(pvs)
     assert "cache" in server.requests[-1]
 
 
@@ -262,28 +285,52 @@ def test_an_empty_answer_creates_no_cache():
     pvs.getVarserver = empty_ok
     for _ in range(3):
         assert query(pvs) == {}
-    assert all("cache" not in r or "match" in r for r in server.requests)
+    # never a read of a cache that was never recorded
+    assert not any(r.keys() == {"cache"} for r in server.requests)
     assert pvs._query_caches == {}
 
 
 def test_a_new_host_relearns_cache_support():
     server = FakeVarserver(METER)
     pvs = make_pvs(server)
-    query(pvs, "/sys/devices/meter/")
-    query(pvs, "/sys/devices/meter/")  # caching worked on the first PVS
+    warm(pvs, "/sys/devices/meter/")  # caching worked on the first PVS
     other = FakeVarserver(INVERTERS, supports_cache=False)
     pvs.host = "other.test"
     pvs.getVarserver = other
-    query(pvs)
+    warm(pvs)
     assert query(pvs) == INVERTERS  # fell back to a plain match, not an error
 
 
 def test_an_inverter_reprobe_keeps_the_other_caches(monkeypatch):
-    server = FakeVarserver({**METER})
+    """Through PVS.update(): after the nightly restart the inverters are
+    missing, and each backoff re-probe must rebuild only the inverter cache."""
+    import pypvs.updaters.gateway as gateway_module
+
+    clock = Clock(monkeypatch)
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock.now)
+    sys_info = {
+        name: "1"
+        for name in (
+            "/sys/info/sys_type",
+            "/sys/info/model",
+            "/sys/info/hwrev",
+            "/sys/info/sw_rev",
+            "/sys/info/uptime",
+            "/sys/info/lmac",
+            "/sys/info/ram_usage",
+            "/sys/info/flash_usage",
+            "/sys/info/cpu_usage",
+        )
+    }
+    server = FakeVarserver({**sys_info, **METER})
     pvs = make_pvs(server)
-    query(pvs, "/sys/devices/meter/")
-    query(pvs, "/sys/devices/meter/")
-    pvs.reset_query_caches("/sys/devices/inverter/")
+    asyncio.run(pvs.update())  # probe: no inverters
+    clock.now += 1
+    asyncio.run(pvs.update())  # meter cache created
+    meter_cache = query_cache_id("/sys/devices/meter/")
     server.requests.clear()
-    query(pvs, "/sys/devices/meter/")
-    assert server.requests == [{"cache": query_cache_id("/sys/devices/meter/")}]
+    clock.now += 61  # the first re-probe is due
+    data = asyncio.run(pvs.update())
+    assert list(data.meters) == ["M"]
+    meter_requests = [r for r in server.requests if "meter" in str(r)]
+    assert meter_requests and all(r == {"cache": meter_cache} for r in meter_requests)

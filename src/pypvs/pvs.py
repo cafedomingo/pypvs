@@ -179,9 +179,11 @@ class PVS:
         found uncacheable, when None) so the next query rebuilds it."""
         if match is not None:
             self._query_caches.pop(match, None)
+            self._uncacheable.discard(match)
             return
         self._query_caches.clear()
         self._uncacheable.clear()
+        self._seen_matches.clear()
 
     async def _match_query(self, match: str) -> Any:
         """Run a match query, through a PVS-side cache once it is used again.
@@ -199,8 +201,9 @@ class PVS:
         if not self._use_query_cache or match in self._uncacheable:
             return await self.getVarserver("/vars", params={"match": match})
         if match not in self._seen_matches:
-            self._seen_matches.add(match)
-            return await self.getVarserver("/vars", params={"match": match})
+            data = await self.getVarserver("/vars", params={"match": match})
+            self._seen_matches.add(match)  # only a successful use counts
+            return data
         cache_id = query_cache_id(match)
         now = time.monotonic()
         created = self._query_caches.get(match)
@@ -256,11 +259,13 @@ class PVS:
         await self._firmware.setup()
         return True
 
-    async def probe(self, reset_caches: bool = True) -> None:
+    async def probe(self) -> None:
         """Probe for model and supported features."""
         # probe against a fresh view of the PVS, not cached name sets
-        if reset_caches:
-            self.reset_query_caches()
+        self.reset_query_caches()
+        await self._probe()
+
+    async def _probe(self) -> None:
         supported_features = SupportedFeatures(0)
         updaters: list[PVSUpdater] = []
         self._common_properties.reset_probe_properties()
@@ -305,7 +310,7 @@ class PVS:
                 self._inverter_last_reprobe = now
                 # only the inverters are in doubt; keep the other caches
                 self.reset_query_caches(VARS_MATCH_INVERTERS)
-                await self.probe(reset_caches=False)
+                await self._probe()
                 if not (self._supported_features & SupportedFeatures.INVERTERS):
                     self._inverter_reprobe_interval = min(
                         self._inverter_reprobe_interval * 2,

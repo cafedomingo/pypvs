@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from ..const import HTTP_BAD_REQUEST, VARS_MATCH_INFO, SupportedFeatures
@@ -30,6 +31,15 @@ EMPTY_REFRESHES_BEFORE_DROP = 3
 _MISSING = object()
 
 
+@dataclass
+class _BatchState:
+    """Whether batched reads of one kind ("core", "extras") are working."""
+
+    failures: int = 0  # consecutive batches that had to fall back
+    off_at: float | None = None  # when batching was given up
+    logged: bool = False
+
+
 class PVSGatewayUpdater(PVSUpdater):
     """Class to handle updates for the PVS gateway."""
 
@@ -41,10 +51,10 @@ class PVSGatewayUpdater(PVSUpdater):
         self._extras_at: float | None = None
         # var name -> consecutive refreshes it came back empty
         self._empty_count: dict[str, int] = {}
-        # per batch kind ("core", "extras"): consecutive fallbacks, and when
-        # batching was given up (it is tried again after UNSUPPORTED_RETRY_S)
-        self._batch_failures: dict[str, int] = {}
-        self._batching_off_at: dict[str, float] = {}
+        self._batches: dict[str, _BatchState] = {
+            "core": _BatchState(),
+            "extras": _BatchState(),
+        }
 
     async def probe(
         self, discovered_features: SupportedFeatures
@@ -89,13 +99,6 @@ class PVSGatewayUpdater(PVSUpdater):
                 retry.append(name)
         return known, retry
 
-    def _batch_failed(self, kind: str, now: float) -> None:
-        failures = self._batch_failures.get(kind, 0) + 1
-        self._batch_failures[kind] = failures
-        if failures == BATCH_FAILURES_BEFORE_GIVING_UP:
-            _LOGGER.info("Batched %s reads keep failing; reading one by one", kind)
-            self._batching_off_at[kind] = now
-
     async def _read_batch(
         self, kind: str, names: list[str], now: float
     ) -> dict[str, Any] | None:
@@ -103,14 +106,15 @@ class PVSGatewayUpdater(PVSUpdater):
         used: no batch reader, batching given up on for now, the PVS rejected
         it (400 for an unknown name, or a server error), or the answer was
         malformed. The caller then reads the names one by one, which also
-        records unknown ones. Only an unreachable PVS (no HTTP status) raises.
+        records unknown ones. A 200 that leaves names out is returned (the
+        caller reads the gaps alone) but counts as a failed batch. Only an
+        unreachable PVS (no HTTP status) raises.
         """
-        off_at = self._batching_off_at.get(kind)
-        if off_at is not None:
-            if now - off_at < UNSUPPORTED_RETRY_S:
+        state = self._batches[kind]
+        if state.off_at is not None:
+            if now - state.off_at < UNSUPPORTED_RETRY_S:
                 return None
-            del self._batching_off_at[kind]
-            self._batch_failures[kind] = 0
+            state.off_at = None  # one probe; a failure turns batching off again
         if self._request_named_vars is None or not names:
             return None
         try:
@@ -121,10 +125,15 @@ class PVSGatewayUpdater(PVSUpdater):
             if e.status is None:
                 raise
             values = None
-        if values is None:
-            self._batch_failed(kind, now)
-        else:
-            self._batch_failures[kind] = 0
+        if values is not None and all(n in values for n in names):
+            state.failures = 0
+            return values
+        state.failures += 1
+        if state.failures >= BATCH_FAILURES_BEFORE_GIVING_UP:
+            state.off_at = now
+            if not state.logged:
+                _LOGGER.info("Batched %s reads keep failing; reading one by one", kind)
+                state.logged = True
         return values
 
     async def update(self, pvs_data: PVSData) -> None:
@@ -174,8 +183,10 @@ class PVSGatewayUpdater(PVSUpdater):
             return
         if batch is not None:
             for name in known:
-                self._record_extra(name, batch.get(name, _MISSING))
-            singles = retry
+                if name in batch:
+                    self._record_extra(name, batch[name])
+            # a 200 that left a name out: read the gaps alone
+            singles = [n for n in known if n not in batch] + retry
         else:
             singles = known + retry
         for name in singles:
