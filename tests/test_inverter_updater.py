@@ -74,3 +74,35 @@ def test_update_ignores_short_var_names():
     asyncio.run(updater.update(out))
     assert list(out.inverters) == ["A"]
     assert out.inverters["A"].lte_kwh == 1200.5
+
+
+def test_update_without_serials_says_so(caplog):
+    caplog.set_level(logging.INFO, logger="pypvs")
+    updater = make_updater([{"/sys/devices/inverter/0/p3phsumKw": "0.1"}])
+    out = PVSData()
+    asyncio.run(updater.update(out))
+    assert out.inverters == {}
+    assert "without serial numbers" in caplog.text
+
+
+def test_meter_updater_ignores_short_var_names():
+    from pypvs.updaters.meter import PVSProductionMetersUpdater
+
+    async def request_vars(match):
+        return {
+            "/sys/devices/meter/0": "x",
+            "/sys/devices/meter/0/sn": "M1",
+            "/sys/devices/meter/0/p3phsumKw": "1.5",
+        }
+
+    async def request_var(name):
+        raise AssertionError("not used")
+
+    updater = PVSProductionMetersUpdater(
+        request_var=request_var,
+        request_vars=request_vars,
+        common_properties=CommonProperties(),
+    )
+    out = PVSData()
+    asyncio.run(updater.update(out))
+    assert out.meters["M1"].power_3ph_kw == 1.5

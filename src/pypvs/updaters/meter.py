@@ -5,7 +5,7 @@ from ..const import VARS_MATCH_METERS, SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.meter import PVSMeter
 from ..models.pvs import PVSData
-from .base import PVSUpdater
+from .base import PVSUpdater, group_device_vars
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            meters_dict: list[dict[str, Any]] = await self._request_vars(
+            meters_dict: dict[str, Any] = await self._request_vars(
                 VARS_MATCH_METERS
             )
         except Exception as e:
@@ -46,25 +46,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
             self._data_unavailable = False
 
         try:
-            # construct a list of meters from the provided dictionary,
-            #  drop all parent path
-            meters_grouped = {}
-            for key, val in meters_dict.items():
-                # Extract the meter index from the name, e.g., '0'
-                # from '/sys/devices/meter/0/freqHz'
-                parts = key.split("/")
-                if len(parts) >= 5:
-                    idx = int(parts[4])
-                    param = parts[5]
-                    if idx not in meters_grouped:
-                        meters_grouped[idx] = {param: val}
-                    else:
-                        meters_grouped[idx][param] = val
-
-            # Convert to a list sorted by index
-            meters_data = [
-                meters_grouped[idx] for idx in sorted(meters_grouped.keys(), key=int)
-            ]
+            meters_data = group_device_vars(meters_dict)
         except Exception as e:
             _LOGGER.error("Failed to process meter data: %s", e)
             return

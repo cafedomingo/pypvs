@@ -5,7 +5,7 @@ from ..const import VARS_MATCH_ESS, SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.ess import PVSESS
 from ..models.pvs import PVSData
-from .base import PVSUpdater
+from .base import PVSUpdater, group_device_vars
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class PVSESSUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            ess_dict: list[dict[str, Any]] = await self._request_vars(VARS_MATCH_ESS)
+            ess_dict: dict[str, Any] = await self._request_vars(VARS_MATCH_ESS)
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("ESS data unavailable: %s", e)
@@ -42,22 +42,7 @@ class PVSESSUpdater(PVSUpdater):
             self._data_unavailable = False
 
         try:
-            # construct a list of ESS from the provided dictionary, drop all parent path
-            ess_grouped = {}
-            for key, val in ess_dict.items():
-                # Extract the ESS index from the name, e.g., '0'
-                # from '/sys/devices/ess/0/opMode'
-                parts = key.split("/")
-                if len(parts) >= 5:
-                    idx = int(parts[4])
-                    param = parts[5]
-                    if idx not in ess_grouped:
-                        ess_grouped[idx] = {param: val}
-                    else:
-                        ess_grouped[idx][param] = val
-
-            # Convert to a list sorted by index
-            ess_data = [ess_grouped[idx] for idx in sorted(ess_grouped.keys(), key=int)]
+            ess_data = group_device_vars(ess_dict)
         except Exception as e:
             _LOGGER.error("Failed to process ESS data: %s", e)
             return

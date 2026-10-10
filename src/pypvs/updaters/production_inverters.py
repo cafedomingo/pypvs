@@ -5,7 +5,7 @@ from ..const import VARS_MATCH_INVERTERS, SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.inverter import PVSInverter
 from ..models.pvs import PVSData
-from .base import PVSUpdater
+from .base import PVSUpdater, group_device_vars
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             )
             return None
         try:
-            found = bool(_group_by_index(inverters_dict))
+            found = bool(group_device_vars(inverters_dict))
         except ValueError:
             found = False
         if not found:
@@ -54,14 +54,18 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             return
 
         try:
-            inverters_data = _group_by_index(inverters_dict)
+            inverters_data = group_device_vars(inverters_dict)
         except Exception as e:
             _LOGGER.error("Failed to process inverter data: %s", e)
             return
 
         if not inverters_data:
             if not self._data_unavailable:
-                _LOGGER.warning("PVS returned no inverter data")
+                _LOGGER.warning(
+                    "PVS returned no inverter data"
+                    if not inverters_dict
+                    else "PVS returned inverter data without serial numbers"
+                )
                 self._data_unavailable = True
             return
 
@@ -75,14 +79,3 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             for inverter in inverters_data
         }
 
-
-def _group_by_index(inverters_dict: dict[str, Any]) -> list[dict[str, Any]]:
-    """Pack /sys/devices/inverter/{i}/{param} vars into one dict per inverter,
-    ordered by index. Inverters without a serial number are dropped."""
-    grouped: dict[int, dict[str, Any]] = {}
-    for key, val in inverters_dict.items():
-        # e.g. '/sys/devices/inverter/0/freqHz' -> index 0, param 'freqHz'
-        parts = key.split("/")
-        if len(parts) >= 6:
-            grouped.setdefault(int(parts[4]), {})[parts[5]] = val
-    return [grouped[idx] for idx in sorted(grouped) if grouped[idx].get("sn")]
