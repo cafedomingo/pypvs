@@ -84,7 +84,8 @@ class PVS:
         Args:
             query_cache_ttl_s: rebuild interval for the PVS-side caches the
                 device updaters' match queries go through (doc/Caching.md).
-                None turns caching off: every match is a plain match.
+                None turns caching off: every match is a plain match, and
+                updaters get no request_cached_vars.
         """
         self._host: str | None = None
         self._common_properties: CommonProperties = CommonProperties()
@@ -102,14 +103,8 @@ class PVS:
         self.fcgi_client = PVSFCGIClient(
             session=session, auth_user=user, auth_password=password
         )
-        self._query_cache = (
-            None
-            if query_cache_ttl_s is None
-            else QueryCache(
-                lambda params: self.getVarserver("/vars", params=params),
-                query_cache_ttl_s,
-            )
-        )
+        self._query_cache_ttl_s = query_cache_ttl_s
+        self._query_cache: QueryCache | None = None
         self.host = host
 
     def update_clients(self) -> None:
@@ -230,7 +225,9 @@ class PVS:
             # updaters registered by others may predate these arguments
             if _accepts(updater, "request_named_vars"):
                 kwargs["request_named_vars"] = self.getVarserverVarsByName
-            if _accepts(updater, "request_cached_vars"):
+            if self._query_cache is not None and _accepts(
+                updater, "request_cached_vars"
+            ):
                 kwargs["request_cached_vars"] = self._cached_vars
             klass = updater(
                 request_var=self.getVarserverVar,
@@ -295,8 +292,16 @@ class PVS:
     @host.setter
     def host(self, value: str | None):
         self._host = value
-        if self._query_cache is not None:
-            self._query_cache.reset()  # those caches live on the old PVS
+        # caches, and what was learnt about them, belong to the old PVS
+        self._query_cache = (
+            None
+            if self._query_cache_ttl_s is None
+            else QueryCache(
+                lambda params: self.getVarserver("/vars", params=params),
+                self._query_cache_ttl_s,
+                lambda: time.monotonic(),
+            )
+        )
         self.update_clients()
 
     @property

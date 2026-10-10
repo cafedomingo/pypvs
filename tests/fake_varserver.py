@@ -1,11 +1,17 @@
-"""A varserver that behaves like the PVS6 did when checked live:
+"""A varserver modelled on a PVS6.
 
-- match=M (+ cache=ID): names containing M; none -> 400 (0x0040). With an id,
-  the names are recorded as that cache, replacing any cache with that id.
-- cache=ID alone: unknown id -> 400 (0x0040); else the recorded names' current
-  values (names that no longer exist are dropped).
+Checked live on a PVS6 (doc/Caching.md):
+- match=M (+ cache=ID): names containing M (substring, per LocalAPI.md); none
+  -> 400 (0x0040) and no cache recorded. With an id, the names are recorded as
+  that cache, replacing any cache with that id.
+- cache=ID alone: unknown id -> 400 (0x0040); else the recorded names' values.
 - caches are shared across sessions; restart() forgets them all and, like the
   nightly restart, removes every inverter variable until sunrise().
+
+Assumed, not seen live: a read drops recorded names that no longer exist, and
+answers 400 when none are left (an empty list with stale_reads_empty). The
+PVS only drops names in its restart, which also forgets the caches, so
+QueryCache treats both answers as a lost cache.
 """
 
 from __future__ import annotations

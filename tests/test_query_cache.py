@@ -9,10 +9,15 @@ import pytest
 from fake_varserver import INVERTER, METER, FakeVarserver, inverter_vars
 
 import pypvs.pvs as pvs_module
-import pypvs.updaters.gateway as gateway_module
 from pypvs.exceptions import PVSCommunicationError
 from pypvs.pvs import PVS
-from pypvs.query_cache import QUERY_CACHE_TTL_S, QueryCache, cache_id
+from pypvs.query_cache import (
+    LOSS_LIMIT,
+    QUERY_CACHE_TTL_S,
+    UNREADABLE_RETRY_S,
+    QueryCache,
+    cache_id,
+)
 
 TWELVE = [f"E0012220212{n:04d}" for n in range(12)]
 
@@ -89,6 +94,33 @@ def test_read_after_ttl_recreates():
     assert server.kinds() == ["create", "read", "create"]
 
 
+def test_create_400_after_the_ttl_raises_and_stays_none():
+    clock = Clock()
+    server = FakeVarserver({**METER, **inverter_vars(TWELVE)})
+    cache = cache_for(server, clock)
+    read(cache)
+    server.vars = dict(METER)  # inverters gone, cache still on the PVS
+    clock.now += QUERY_CACHE_TTL_S
+    with pytest.raises(PVSCommunicationError):
+        read(cache)
+    with pytest.raises(PVSCommunicationError):
+        read(cache)
+    assert server.kinds() == ["create", "create", "create"]
+
+
+def test_create_timeout_after_the_ttl_raises_and_stays_none():
+    clock = Clock()
+    server = FakeVarserver(METER)
+    cache = cache_for(server, clock)
+    read(cache, "/sys/devices/meter/")
+    clock.now += QUERY_CACHE_TTL_S
+    server.fail_next(PVSCommunicationError("Cannot reach the PVS"))
+    with pytest.raises(PVSCommunicationError):
+        read(cache, "/sys/devices/meter/")
+    read(cache, "/sys/devices/meter/")
+    assert server.kinds() == ["create", "create", "create"]
+
+
 def test_read_400_recreates_in_the_same_call():
     server = FakeVarserver(METER)
     cache = cache_for(server)
@@ -136,6 +168,83 @@ def test_read_timeout_raises_and_keeps_the_cache():
     server.requests.clear()
     read(cache, "/sys/devices/meter/")
     assert server.kinds() == ["read"]
+
+
+def test_read_500_raises_and_keeps_the_cache():
+    server = FakeVarserver(METER)
+    cache = cache_for(server)
+    read(cache, "/sys/devices/meter/")
+    server.fail_next(PVSCommunicationError("HTTP 500", status=500))
+    with pytest.raises(PVSCommunicationError):
+        read(cache, "/sys/devices/meter/")
+    server.requests.clear()
+    read(cache, "/sys/devices/meter/")
+    assert server.kinds() == ["read"]
+
+
+class Forgetful(FakeVarserver):
+    """Accepts a create, then cannot read the cache back."""
+
+    async def handle(self, params):
+        if set(params) == {"cache"}:
+            self.requests.append(dict(params))
+            raise PVSCommunicationError("HTTP 400: 0x0040", status=400)
+        return await super().handle(params)
+
+
+def test_a_cache_lost_every_time_goes_plain_for_a_while(caplog):
+    clock = Clock()
+    server = Forgetful(METER)
+    cache = cache_for(server, clock)
+    for _ in range(LOSS_LIMIT + 2):
+        assert len(read(cache, "/sys/devices/meter/")["values"]) == 2
+    assert server.kinds() == ["create"] + ["read", "create"] * (LOSS_LIMIT - 1) + [
+        "read",
+        "match",
+        "match",
+    ]
+    server.requests.clear()
+    clock.now += UNREADABLE_RETRY_S
+    for _ in range(3):
+        read(cache, "/sys/devices/meter/")
+    # one trial; its first loss goes straight back
+    assert server.kinds() == ["create", "read", "match", "match"]
+    assert caplog.text.count("keeps losing the cache") == 1
+
+
+def test_a_good_read_clears_the_losses():
+    server = FakeVarserver(METER)
+    cache = cache_for(server)
+    for _ in range(3):
+        read(cache, "/sys/devices/meter/")
+        for _ in range(LOSS_LIMIT - 1):
+            server.caches.clear()
+            read(cache, "/sys/devices/meter/")
+    assert "match" not in server.kinds()
+
+
+def test_reset_during_a_create_records_nothing():
+    server = FakeVarserver(METER)
+    cache = cache_for(server)
+
+    async def create_then_reset(params):
+        data = await server.handle(params)
+        cache.reset()  # e.g. a probe while the create was in flight
+        return data
+
+    cache._request = create_then_reset
+    read(cache, "/sys/devices/meter/")
+    cache._request = server.handle
+    read(cache, "/sys/devices/meter/")
+    assert server.kinds() == ["create", "create"]
+
+
+@pytest.mark.parametrize("ttl", [0, -1.0])
+def test_ttl_must_be_positive(ttl):
+    with pytest.raises(ValueError):
+        QueryCache(FakeVarserver({}).handle, ttl)
+    with pytest.raises(ValueError):
+        PVS(session=None, host="pvs.test", query_cache_ttl_s=ttl)
 
 
 def test_reset_forces_a_create():
@@ -203,9 +312,7 @@ SYS_INFO = {
 def make_pvs(monkeypatch, server):
     clock = Clock()
     monkeypatch.setattr(pvs_module.time, "monotonic", clock)
-    monkeypatch.setattr(gateway_module.time, "monotonic", clock)
     pvs = PVS(session=None, host="pvs.test")
-    pvs._query_cache._clock = clock
     pvs.getVarserver = server.get_varserver
     return pvs, clock
 
@@ -284,3 +391,17 @@ def test_probe_and_host_change_reset_the_caches(monkeypatch):
     pvs.host = "other.test"
     asyncio.run(pvs.getVarserverVars("/sys/devices/meter/", cache=True))
     assert server.kinds() == ["create"]
+
+
+def test_caching_off_keeps_old_style_request_vars_working(monkeypatch):
+    server = FakeVarserver({**SYS_INFO, **METER})
+    pvs = PVS(session=None, host="pvs.test", query_cache_ttl_s=None)
+    pvs.getVarserver = server.get_varserver
+    plain = pvs.getVarserverVars
+
+    async def get_vars(match):  # no cache keyword, as before caching
+        return await plain(match)
+
+    pvs.getVarserverVars = get_vars
+    assert list(update(pvs).meters) == ["PVS6M1p"]
+    assert set(device_requests(server, "/sys/devices/meter/")) == {"match"}
