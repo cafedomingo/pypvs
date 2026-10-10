@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -105,24 +106,30 @@ class PVSLiveData:
             backup_time_remaining=cls._parse_numeric(
                 data.get("/sys/livedata/backupTimeRemaining")
             ),
-            midstate=data.get("/sys/livedata/midstate"),
+            midstate=cls._parse_string(data.get("/sys/livedata/midstate")),
         )
 
     @staticmethod
     def _parse_numeric(value: Any) -> float | None:
         """Parse a numeric value from varserver response."""
-        if value is None:
+        if value is None or isinstance(value, bool):
             return None
         if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            if value.lower() in ("nan", "null", ""):
-                return None
+            number = float(value)
+        elif isinstance(value, str):
             try:
-                return float(value)
-            except (ValueError, TypeError):
+                number = float(value)
+            except ValueError:
                 return None
-        return None
+        else:
+            return None
+        # nan/inf are "no reading"; NaN would also never compare equal
+        return number if math.isfinite(number) else None
+
+    @staticmethod
+    def _parse_string(value: Any) -> str | None:
+        """Parse a string value; the wire may carry it as a number."""
+        return None if value is None else str(value)
 
     @staticmethod
     def _parse_timestamp(value: Any) -> datetime | None:

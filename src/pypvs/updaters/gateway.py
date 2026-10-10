@@ -2,11 +2,16 @@ import logging
 from typing import Any
 
 from ..const import VARS_MATCH_INFO, SupportedFeatures
+from ..exceptions import PVSCommunicationError, PVSDataFormatError
 from ..models.gateway import PVSGateway
 from ..models.pvs import PVSData
 from .base import PVSUpdater
 
 _LOGGER = logging.getLogger(__name__)
+
+# Variables not every PVS has (flashwear_type_b is PVS6-only); the PVS answers
+# 400 for unknown variables, which must not fail the whole update.
+OPTIONAL_VARS = {"/sys/pvs/flashwear_type_b"}
 
 
 class PVSGatewayUpdater(PVSUpdater):
@@ -39,8 +44,14 @@ class PVSGatewayUpdater(PVSUpdater):
 
         # undate individual vars and not by match as the match takes a long time
         for var_name, var_value in sys_info.items():
-            if var_value is None:
+            if var_value is not None:
+                continue
+            try:
                 sys_info[var_name] = await self._request_var(var_name)
+            except (PVSCommunicationError, PVSDataFormatError) as e:
+                if var_name not in OPTIONAL_VARS:
+                    raise
+                _LOGGER.debug("Optional variable %s unavailable: %s", var_name, e)
 
         pvs_data.raw[VARS_MATCH_INFO] = sys_info
         pvs_data.gateway = PVSGateway.from_varserver(sys_info)

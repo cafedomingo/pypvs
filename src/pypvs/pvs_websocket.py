@@ -221,13 +221,13 @@ class PVSWebSocket:
 
                         # Start heartbeat monitor
                         async def monitor_heartbeat() -> None:
-                            nonlocal last_message_time
                             while True:
                                 await asyncio.sleep(30)
                                 elapsed = time.monotonic() - last_message_time
                                 if elapsed > stale_timeout:
                                     _LOGGER.warning(
-                                        "WebSocket stale (no messages for %.0fs), closing",
+                                        "WebSocket stale (no messages for %.0fs),"
+                                        " closing",
                                         elapsed,
                                     )
                                     await ws.close()
@@ -241,9 +241,16 @@ class PVSWebSocket:
                             if msg.type == aiohttp.WSMsgType.TEXT:
                                 try:
                                     data = json.loads(msg.data)
-                                    self._process_message(data)
                                 except json.JSONDecodeError:
                                     _LOGGER.debug("Invalid JSON in WebSocket message")
+                                    continue
+                                try:
+                                    self._process_message(data)
+                                except Exception:
+                                    # one bad message must not drop the connection
+                                    _LOGGER.exception(
+                                        "Failed to process WebSocket message"
+                                    )
                             elif msg.type == aiohttp.WSMsgType.ERROR:
                                 _LOGGER.warning("WebSocket error: %s", ws.exception())
                                 break
@@ -313,13 +320,11 @@ class PVSWebSocket:
 
     def _process_message(self, data: dict) -> None:
         """Process incoming WebSocket message."""
-        if data.get("notification") != "power" or "params" not in data:
+        if not isinstance(data, dict) or data.get("notification") != "power":
             return
-
-        if self._live_data is None:
+        params = data.get("params")
+        if not isinstance(params, dict) or self._live_data is None:
             return
-
-        params = data["params"]
         changed_vars: set[str] = set()
 
         for ws_field, (var_path, attr_name, value_type) in _WS_FIELD_MAP.items():
@@ -344,7 +349,7 @@ class PVSWebSocket:
     def _convert_value(self, raw_value: Any, value_type: str) -> Any:
         """Convert raw WebSocket value to appropriate type."""
         if value_type == "string":
-            return str(raw_value) if raw_value is not None else None
+            return PVSLiveData._parse_string(raw_value)
 
         if value_type == "numeric":
             return PVSLiveData._parse_numeric(raw_value)

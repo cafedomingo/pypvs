@@ -182,6 +182,9 @@ class PVS:
         """Update data."""
         if not self._supported_features:
             await self.probe()
+            if not (self._supported_features & SupportedFeatures.INVERTERS):
+                # start the re-probe backoff from this probe
+                self._inverter_last_reprobe = time.monotonic()
         elif not (self._supported_features & SupportedFeatures.INVERTERS):
             # Inverters not yet discovered — devices may have been offline
             # during initial probe. Re-probe with exponential backoff.
