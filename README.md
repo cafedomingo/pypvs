@@ -2,7 +2,7 @@
 
 **PyPVS** is a Python package that provides a Python API for interacting with **SunStrong Management PVS6** and **PVS5** gateways. It enables developers to access gateway data and issue commands programmatically.  
 
-![GitHub Release](https://img.shields.io/github/v/release/SunStrong-Management/pypvs)
+[![GitHub Release](https://img.shields.io/github/v/release/cafedomingo/pypvs)](https://github.com/cafedomingo/pypvs/releases)
 
 ---
 
@@ -21,10 +21,10 @@ You can verify the installed firmware version in the **SunStrong Connect** mobil
 
 ## Installation
 
-This is a fork of [SunStrong-Management/pypvs](https://github.com/SunStrong-Management/pypvs). It is not published to PyPI; install it from git:
+This is a fork of [SunStrong-Management/pypvs](https://github.com/SunStrong-Management/pypvs). It is not published to PyPI; install a [release](https://github.com/cafedomingo/pypvs/releases) tag from git:
 
 ```bash
-pip install "pypvs @ git+https://github.com/cafedomingo/pypvs@main"
+pip install "pypvs @ git+https://github.com/cafedomingo/pypvs@v0.3.0"
 ```
     
 ## Documentation
