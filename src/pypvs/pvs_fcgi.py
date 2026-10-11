@@ -22,7 +22,6 @@ class PVSFCGIClient:
         self.session = session
         self.auth_user = auth_user
         self.auth_password = auth_password
-        self.pvs_details = None
         self._pvs_url: str | None = None
         self.login_endpoint = "/auth?login"
         self.cookies = None
@@ -35,14 +34,6 @@ class PVSFCGIClient:
     def pvs_url(self, value: str | None):
         self._pvs_url = value
         _LOGGER.debug(f"PVS URL set to {self._pvs_url}")
-
-    def set_pvs_details(self, details):
-        # check all fields are present
-        if not all(key in details for key in ["serial"]):
-            raise ValueError("PVS details must contain serial")
-
-        self.pvs_details = details
-        _LOGGER.info(f"PVS details set: {self.pvs_details}")
 
     async def login_basic(self):
         if not self.auth_user:

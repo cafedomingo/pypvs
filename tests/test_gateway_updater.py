@@ -12,7 +12,6 @@ from pypvs.exceptions import (
     PVSCommunicationError,
     PVSDataFormatError,
 )
-from pypvs.models.common import CommonProperties
 from pypvs.models.pvs import PVSData
 from pypvs.updaters.gateway import PVSGatewayUpdater
 
@@ -75,7 +74,6 @@ class FakePVS:
         return PVSGatewayUpdater(
             request_var=self.request_var,
             request_vars=self.request_vars,
-            common_properties=CommonProperties(),
         )
 
 

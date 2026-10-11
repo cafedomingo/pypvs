@@ -1,5 +1,4 @@
 import enum
-from enum import StrEnum
 
 # System Production
 VARS_MATCH_INVERTERS = "/sys/devices/inverter/"
@@ -18,12 +17,3 @@ class SupportedFeatures(enum.IntFlag):
     METERING = 4  #: PVS reports active production meter
     ESS = 8  #: PVS reports energy storage system
     TRANSFER_SWITCH = 16  #: PVS reports transfer switch
-
-
-class PhaseNames(StrEnum):
-    PHASE_1 = "L1"
-    PHASE_2 = "L2"
-    PHASE_3 = "L3"
-
-
-PHASENAMES: list[str] = list(PhaseNames)

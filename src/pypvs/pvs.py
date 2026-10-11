@@ -13,7 +13,6 @@ from .exceptions import (
     PVSProbeFailed,
 )
 from .firmware import PVSFirmware
-from .models.common import CommonProperties
 from .models.pvs import PVSData
 from .pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError, PVSFCGIClientPostError
 from .pvs_websocket import PVSWebSocket
@@ -52,7 +51,6 @@ def get_updaters() -> list[type[PVSUpdater]]:
 class PVS:
     def __init__(self, session, host=None, user="ssm_owner", password=None):
         self._host: str | None = None
-        self._common_properties: CommonProperties = CommonProperties()
 
         self._firmware = PVSFirmware(self.getVarserverVar)
         self._supported_features: SupportedFeatures | None = None
@@ -94,16 +92,6 @@ class PVS:
         response_data = await self.getVarserver("/vars", params={"name": varname})
 
         try:
-            # sample return:
-            # {
-            #     "count": 1,
-            #     "values": [
-            #     {
-            #         "name": "/sys/info/uptime",
-            #         "value": "106408.20"
-            #     }
-            #     ]
-            # }
             value = response_data["values"][0]["value"]
             _LOGGER.debug(f"Received {varname}: {value}")
             return response_data["values"][0]["value"]
@@ -131,7 +119,6 @@ class PVS:
     async def discover(self) -> None:
         """Discover the PVS and its capabilities."""
         await self._firmware.setup()
-        self.fcgi_client.set_pvs_details({"serial": self._firmware.serial})
 
     async def setup(self, auth_password: str | None = None) -> None:
         if not self._firmware.serial:
@@ -153,13 +140,11 @@ class PVS:
         """Probe for model and supported features."""
         supported_features = SupportedFeatures(0)
         updaters: list[PVSUpdater] = []
-        self._common_properties.reset_probe_properties()
 
         for updater in get_updaters():
             klass = updater(
                 request_var=self.getVarserverVar,
                 request_vars=self.getVarserverVars,
-                common_properties=self._common_properties,
             )
             if updater_features := await klass.probe(supported_features):
                 supported_features |= updater_features

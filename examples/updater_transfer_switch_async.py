@@ -9,7 +9,6 @@ import aiohttp
 
 from pypvs.const import SupportedFeatures
 from pypvs.exceptions import ENDPOINT_PROBE_EXCEPTIONS
-from pypvs.models.common import CommonProperties
 from pypvs.models.pvs import PVSData
 from pypvs.pvs import PVS
 from pypvs.updaters.transfer_switch import PVSTransferSwitchUpdater
@@ -37,9 +36,8 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        common_properties = CommonProperties()
         transfer_switch_updater = PVSTransferSwitchUpdater(
-            pvs.getVarserverVar, pvs.getVarserverVars, common_properties
+            pvs.getVarserverVar, pvs.getVarserverVars
         )
 
         discovered_features = SupportedFeatures(0)

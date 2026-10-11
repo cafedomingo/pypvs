@@ -4,7 +4,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..const import SupportedFeatures
-from ..models.common import CommonProperties
 from ..models.pvs import PVSData
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,13 +37,11 @@ class PVSUpdater:
         self,
         request_var: Callable[[str], Awaitable[Any]],
         request_vars: Callable[[str], Awaitable[dict[str, Any]]],
-        common_properties: CommonProperties,
     ) -> None:
         """Initialize the PVS updater."""
         self._request_var = request_var
         self._request_vars = request_vars
         self._supported_features = SupportedFeatures(0)
-        self._common_properties = common_properties
         self._data_unavailable = False
 
     @abstractmethod
