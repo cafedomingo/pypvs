@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 import pypvs.pvs as pvs_module
+from pypvs.exceptions import PVSCommunicationError
 from pypvs.pvs import PVS
 
 
@@ -36,8 +37,12 @@ def make_pvs(monkeypatch, inverter_answers):
             return answers.pop(0) if answers else {}
         return {}
 
+    async def get_named(names):
+        return {name: "1" for name in names}
+
     pvs.getVarserverVar = get_var
     pvs.getVarserverVars = get_vars
+    pvs.getVarserverVarsByName = get_named
     # the updaters were bound at construction time
     pvs._firmware._request_var = get_var
     return pvs, clock, calls
@@ -78,3 +83,24 @@ def test_clearing_the_host_clears_the_client_url():
     assert pvs.fcgi_client.pvs_url == "https://10.0.0.5"
     pvs.host = None
     assert pvs.fcgi_client.pvs_url is None
+
+
+@pytest.mark.parametrize("has_ess", [True, False])
+def test_the_gateway_asks_for_battery_config_only_with_a_battery(has_ess):
+    pvs = PVS(session=None, host="pvs.test")
+    batches = []
+
+    async def get_vars(match):
+        if match == "/sys/devices/ess/" and has_ess:
+            return {"/sys/devices/ess/0/sn": "E"}
+        raise PVSCommunicationError("HTTP 400", status=400)  # no such devices
+
+    async def get_named(names):
+        batches.append(names)
+        return {name: "PVS6" if name == "/sys/info/model" else "1" for name in names}
+
+    pvs.getVarserverVars = get_vars
+    pvs.getVarserverVarsByName = get_named
+    asyncio.run(pvs.update())
+    asked = {n for batch in batches for n in batch}
+    assert ("/ess/config/dcm/mode_param/control_mode" in asked) is has_ess

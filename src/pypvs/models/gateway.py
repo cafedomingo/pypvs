@@ -19,7 +19,7 @@ ESS_RESERVE_SOC = "/ess/config/dcm/control_param/min_customer_soc"
 ESS_CONTROL_MODE = "/ess/config/dcm/mode_param/control_mode"
 VAR_FLASHWEAR = "/sys/pvs/flashwear_type_b"
 
-#: read on every poll; only flashwear may be missing (PVS6-only)
+#: read every poll; all required
 CORE_VARS = (
     "/sys/info/sys_type",
     "/sys/info/model",
@@ -30,26 +30,17 @@ CORE_VARS = (
     "/sys/info/ram_usage",
     "/sys/info/flash_usage",
     "/sys/info/cpu_usage",
-    VAR_FLASHWEAR,
 )
-OPTIONAL_CORE_VARS = frozenset({VAR_FLASHWEAR})
 #: documented interfaces per model (doc/varserver-variables-public-*.csv)
 INTERFACES_BY_MODEL = {
     "PVS6": ("wan0", "wan1", "sta0", "wwan0"),
     "PVS5": ("wan", "cell", "plc", "sta0"),
 }
-INTERFACES = tuple(dict.fromkeys(n for ns in INTERFACES_BY_MODEL.values() for n in ns))
-
-
-def interface_vars(model: str | None) -> tuple[str, ...]:
-    """/net/{name}/state for the model's interfaces; all known names if the
-    model is unknown."""
-    names = INTERFACES_BY_MODEL.get((model or "").strip(), INTERFACES)
-    return tuple(f"/net/{name}/state" for name in names)
-
+_NET_STATE = re.compile(r"/net/([^/]+)/state")
 
 #: read every few minutes with the interface states, all optional
 EXTRA_VARS = (
+    VAR_FLASHWEAR,
     VAR_FWREV,
     VAR_BOARDTYPE,
     VAR_ACTIVE_INTERFACE,
@@ -60,6 +51,24 @@ EXTRA_VARS = (
     ESS_RESERVE_SOC,
     ESS_CONTROL_MODE,
 )
+ESS_CONFIG_VARS = frozenset({ESS_RESERVE_SOC, ESS_CONTROL_MODE})
+#: not in the PVS5's documented variables
+PVS6_ONLY_VARS = frozenset({VAR_FLASHWEAR, VAR_USB_ERASE_COUNT}) | ESS_CONFIG_VARS
+
+
+def extra_vars(model: str, has_ess: bool) -> tuple[str, ...]:
+    is_pvs5 = model.strip() == "PVS5"
+    skip: set[str] = set()
+    if is_pvs5:
+        skip |= PVS6_ONLY_VARS
+    if not has_ess:
+        skip |= ESS_CONFIG_VARS
+    interfaces = INTERFACES_BY_MODEL["PVS5" if is_pvs5 else "PVS6"]
+    return tuple(n for n in EXTRA_VARS if n not in skip) + tuple(
+        f"/net/{name}/state" for name in interfaces
+    )
+
+
 _PLACEHOLDERS = {"", "TBD"}
 
 
@@ -155,9 +164,10 @@ class PVSGateway:
             usb_erase_count=_count(data, VAR_USB_ERASE_COUNT),
             active_interface=_text(data, VAR_ACTIVE_INTERFACE),
             interface_states={
-                name: state
-                for name in INTERFACES
-                if (state := _text(data, f"/net/{name}/state")) is not None
+                match[1]: state
+                for key in data
+                if (match := _NET_STATE.fullmatch(key))
+                and (state := _text(data, key)) is not None
             },
             broadband_connected=_flag(data, VAR_BROADBAND_CONNECTED),
             cell_connected=_flag(data, VAR_CELL_CONNECTED),

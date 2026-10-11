@@ -37,7 +37,9 @@ async def main():
             return
 
         transfer_switch_updater = PVSTransferSwitchUpdater(
-            pvs.getVarserverVar, pvs.getVarserverVars
+            pvs.getVarserverVar,
+            pvs.getVarserverVars,
+            pvs.getVarserverVarsByName,
         )
 
         discovered_features = SupportedFeatures(0)

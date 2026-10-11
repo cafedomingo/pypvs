@@ -37,10 +37,12 @@ class PVSUpdater:
         self,
         request_var: Callable[[str], Awaitable[Any]],
         request_vars: Callable[[str], Awaitable[dict[str, Any]]],
+        request_named_vars: Callable[[list[str]], Awaitable[dict[str, Any]]],
     ) -> None:
         """Initialize the PVS updater."""
         self._request_var = request_var
         self._request_vars = request_vars
+        self._request_named_vars = request_named_vars
         self._supported_features = SupportedFeatures(0)
         self._data_unavailable = False
 

@@ -20,6 +20,10 @@ def inverter_vars(*serials):
     return out
 
 
+async def unused(names):
+    raise AssertionError("not used")
+
+
 def make_updater(responses):
     """Each call to request_vars returns the next item of `responses`."""
     queue = list(responses)
@@ -33,6 +37,7 @@ def make_updater(responses):
     return PVSProductionInvertersUpdater(
         request_var=request_var,
         request_vars=request_vars,
+        request_named_vars=unused,
     )
 
 
@@ -100,6 +105,7 @@ def test_meter_updater_ignores_short_var_names():
     updater = PVSProductionMetersUpdater(
         request_var=request_var,
         request_vars=request_vars,
+        request_named_vars=unused,
     )
     out = PVSData()
     asyncio.run(updater.update(out))

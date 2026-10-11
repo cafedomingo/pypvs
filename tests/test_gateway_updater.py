@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 import pypvs.updaters.gateway as gateway_module
+from pypvs.const import SupportedFeatures
 from pypvs.exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -48,6 +49,7 @@ NET = {
 }
 
 BAD_REQUEST = PVSCommunicationError("POST request failed: HTTP 400", status=400)
+UNREACHABLE = PVSCommunicationError("Cannot reach the PVS: timeout")
 
 
 class FakePVS:
@@ -58,6 +60,7 @@ class FakePVS:
         self.values = values
         self.failures = failures or {}
         self.calls = []
+        self.batches = []
 
     async def request_var(self, name):
         self.calls.append(name)
@@ -70,11 +73,27 @@ class FakePVS:
     async def request_vars(self, match):
         raise AssertionError("the gateway updater should not use match queries")
 
-    def updater(self):
-        return PVSGatewayUpdater(
+    async def request_named_vars(self, names):
+        self.batches.append(list(names))
+        for name in names:
+            if name in self.failures:
+                raise self.failures[name]
+        if any(name not in self.values for name in names):
+            raise BAD_REQUEST  # the PVS rejects the whole request
+        return {name: self.values[name] for name in names}
+
+    def asked(self):
+        return self.calls + [n for batch in self.batches for n in batch]
+
+    def updater(self, ess=True):
+        updater = PVSGatewayUpdater(
             request_var=self.request_var,
             request_vars=self.request_vars,
+            request_named_vars=self.request_named_vars,
         )
+        features = SupportedFeatures.ESS if ess else SupportedFeatures(0)
+        asyncio.run(updater.probe(features))
+        return updater
 
 
 class Clock:
@@ -96,20 +115,10 @@ def test_full_sys_info():
     assert gw.flashwear_type_b_percent == 10
 
 
-def test_pvs_without_flashwear_still_reports_the_gateway():
-    """flashwear_type_b only exists on the PVS6; a PVS5 answers 400 for it.
-    That one optional variable must not fail the whole gateway update."""
-    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/pvs/flashwear_type_b"}
-    gw = run(FakePVS(values).updater())
-    assert gw.uptime_s == 81436.77
-    assert gw.flashwear_type_b_percent is None
-
-
 def test_timeout_on_a_core_var_fails_the_update():
-    """Only a 400 means 'no such variable'; a timeout on the core info must
-    still fail the update rather than silently reporting the value as missing."""
-    timeout = PVSCommunicationError("Cannot reach the PVS: timeout")
-    pvs = FakePVS(SYS_INFO, failures={"/sys/pvs/flashwear_type_b": timeout})
+    """Every core variable is required: a failure must fail the update rather
+    than silently report the value as missing."""
+    pvs = FakePVS(SYS_INFO, failures={"/sys/info/uptime": UNREACHABLE})
     with pytest.raises(PVSCommunicationError):
         run(pvs.updater())
 
@@ -155,7 +164,7 @@ def test_text_values_are_trimmed_and_placeholders_dropped():
 
 
 def test_gateway_without_extras_or_battery():
-    """A PVS without a battery (or older firmware) answers 400 for these."""
+    """Extras the PVS answers 400 for are left out."""
     gw = run(FakePVS(SYS_INFO).updater())
     assert gw.ess_reserve_soc is None
     assert gw.ess_control_mode is None
@@ -177,14 +186,14 @@ def test_extras_are_refreshed_every_few_minutes_not_every_poll(monkeypatch):
     updater = pvs.updater()
     run(updater)
     clock.now += 30
-    pvs.calls.clear()
+    pvs.batches.clear()
     gw = run(updater)
-    assert "/sys/info/boardtype" not in pvs.calls
+    assert "/sys/info/boardtype" not in pvs.asked()
     assert gw.board_type == "A0K LIB 1.0 PSoC5"  # cached
     clock.now += gateway_module.EXTRAS_REFRESH_S
-    pvs.calls.clear()
+    pvs.batches.clear()
     run(updater)
-    assert "/sys/info/boardtype" in pvs.calls
+    assert "/sys/info/boardtype" in pvs.asked()
 
 
 def test_a_timeout_on_an_extra_keeps_its_last_value(monkeypatch):
@@ -198,22 +207,6 @@ def test_a_timeout_on_an_extra_keeps_its_last_value(monkeypatch):
     clock.now += gateway_module.EXTRAS_REFRESH_S
     gw = run(updater)
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
-
-
-def test_unsupported_vars_are_asked_again_later(monkeypatch):
-    """A 400 can be temporary (battery commissioned later, services starting)."""
-    clock = Clock(monkeypatch)
-    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/pvs/flashwear_type_b"}
-    pvs = FakePVS(values)
-    updater = pvs.updater()
-    run(updater)
-    clock.now += 30
-    run(updater)
-    assert pvs.calls.count("/sys/pvs/flashwear_type_b") == 1
-    clock.now += gateway_module.UNSUPPORTED_RETRY_S
-    values["/sys/pvs/flashwear_type_b"] = "0x02"
-    gw = run(updater)
-    assert gw.flashwear_type_b_percent == 20
 
 
 def test_no_failure_on_an_extra_fails_the_gateway_update():
@@ -249,7 +242,7 @@ def test_a_slow_pvs_costs_one_timeout_per_refresh():
         failures={name: timeout for name in EXTRAS},
     )
     run(pvs.updater())
-    assert sum(1 for name in pvs.calls if name in EXTRAS) == 1
+    assert pvs.calls == [] and len(pvs.batches) == 2
 
 
 def test_an_extra_that_appears_later_is_picked_up(monkeypatch):
@@ -259,15 +252,8 @@ def test_an_extra_that_appears_later_is_picked_up(monkeypatch):
     updater = FakePVS(values).updater()
     assert run(updater).ess_control_mode is None
     values["/ess/config/dcm/mode_param/control_mode"] = "SELF_CONSUMPTION"
-    clock.now += gateway_module.UNSUPPORTED_RETRY_S
+    clock.now += gateway_module.EXTRAS_REFRESH_S
     assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
-
-
-def test_flashwear_without_a_value_does_not_fail_the_update():
-    pvs = FakePVS(
-        SYS_INFO, failures={"/sys/pvs/flashwear_type_b": PVSDataFormatError("")}
-    )
-    assert run(pvs.updater()).flashwear_type_b_percent is None
 
 
 def test_odd_values_are_normalised():
@@ -286,15 +272,15 @@ def test_odd_values_are_normalised():
 def test_only_the_models_interfaces_are_asked_for():
     pvs = FakePVS({**SYS_INFO, **NET})
     run(pvs.updater())
-    assert "/net/wan0/state" in pvs.calls
-    assert "/net/cell/state" not in pvs.calls  # PVS5-only
+    assert "/net/wan0/state" in pvs.asked()
+    assert "/net/cell/state" not in pvs.asked()  # PVS5-only
 
 
 def test_a_persistent_error_on_one_extra_does_not_starve_the_rest():
     server_error = PVSCommunicationError("POST request failed: HTTP 500", status=500)
     pvs = FakePVS(
         {**SYS_INFO, **EXTRAS, **NET},
-        failures={"/sys/info/fwrev": server_error},  # the first extra
+        failures={"/sys/info/fwrev": server_error},
     )
     gw = run(pvs.updater())
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
@@ -312,3 +298,120 @@ def test_a_value_that_stays_empty_is_dropped(monkeypatch):
         assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
     clock.now += gateway_module.EXTRAS_REFRESH_S
     assert run(updater).ess_control_mode is None
+
+
+def test_core_and_extras_take_two_requests():
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    gw = run(pvs.updater())
+    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert gw.uptime_s == 81436.77
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"
+    assert gw.interface_states["wan0"] == "online"
+
+
+def test_a_missing_required_var_fails_the_update():
+    values = {k: v for k, v in SYS_INFO.items() if k != "/sys/info/uptime"}
+    with pytest.raises(PVSCommunicationError):
+        run(FakePVS(values).updater())
+
+
+def test_extras_keep_their_values_through_errors(monkeypatch):
+    clock = Clock(monkeypatch)
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    updater = pvs.updater()
+    run(updater)
+    pvs.failures["/sys/info/boardtype"] = PVSCommunicationError("HTTP 500", status=500)
+    clock.now += gateway_module.EXTRAS_REFRESH_S
+    gw = run(updater)
+    assert gw.board_type == "A0K LIB 1.0 PSoC5"  # kept
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"  # read singly
+
+
+def test_a_server_error_on_a_core_var_fails_the_update():
+    server_error = PVSCommunicationError("HTTP 500", status=500)
+    pvs = FakePVS(SYS_INFO, failures={"/sys/info/uptime": server_error})
+    with pytest.raises(PVSCommunicationError, match="500"):
+        run(pvs.updater())
+
+
+def test_an_unreachable_pvs_fails_without_single_reads():
+    pvs = FakePVS(SYS_INFO, failures={"/sys/info/uptime": UNREACHABLE})
+    with pytest.raises(PVSCommunicationError, match="Cannot reach"):
+        run(pvs.updater())
+    assert pvs.calls == []
+
+
+def test_names_a_batch_leaves_out_are_read_alone():
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+    full = pvs.request_named_vars
+
+    async def without_uptime(names):
+        return {k: v for k, v in (await full(names)).items() if k != "/sys/info/uptime"}
+
+    pvs.request_named_vars = without_uptime
+    gw = run(pvs.updater())
+    assert pvs.calls == ["/sys/info/uptime"]
+    assert gw.uptime_s == 81436.77
+
+
+def test_pvs5_is_not_asked_for_pvs6_only_vars():
+    pvs6_only = {
+        "/sys/pvs/flashwear_type_b",
+        "/sys/pvs/usb_erase_count",
+        "/ess/config/dcm/control_param/min_customer_soc",
+        "/ess/config/dcm/mode_param/control_mode",
+    }
+    values = {k: v for k, v in {**SYS_INFO, **EXTRAS}.items() if k not in pvs6_only}
+    values["/sys/info/model"] = "PVS5"
+    values["/net/wan/state"] = "online"
+    values["/net/cell/state"] = "N/A"
+    values["/net/plc/state"] = "N/A"
+    values["/net/sta0/state"] = "ready"
+    pvs = FakePVS(values)
+    gw = run(pvs.updater())
+    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert not pvs6_only & {n for batch in pvs.batches for n in batch}
+    assert gw.interface_states["wan"] == "online"
+
+
+def test_a_failing_batch_is_logged_with_the_names_that_failed_alone(caplog):
+    server_error = PVSCommunicationError("HTTP 500", status=500)
+    pvs = FakePVS(SYS_INFO, failures={"/sys/info/uptime": server_error})
+    with pytest.raises(PVSCommunicationError):
+        run(pvs.updater())
+    assert "Batched read of 9 variables failed" in caplog.text
+    assert "failed on their own too: /sys/info/uptime" in caplog.text
+
+
+def test_a_malformed_batch_falls_back_to_single_reads():
+    pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
+
+    async def malformed(names):
+        raise PVSDataFormatError("no values list")
+
+    pvs.request_named_vars = malformed
+    gw = run(pvs.updater())
+    assert gw.uptime_s == 81436.77
+    assert gw.ess_control_mode == "SELF_CONSUMPTION"
+
+
+def test_an_extra_that_starts_answering_400_is_dropped(monkeypatch):
+    clock = Clock(monkeypatch)
+    values = {**SYS_INFO, **EXTRAS, **NET}
+    updater = FakePVS(values).updater()
+    assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
+    del values["/ess/config/dcm/mode_param/control_mode"]
+    clock.now += gateway_module.EXTRAS_REFRESH_S
+    assert run(updater).ess_control_mode is None
+
+
+def test_without_a_battery_its_config_is_not_asked_for(caplog):
+    values = {
+        k: v for k, v in {**SYS_INFO, **EXTRAS, **NET}.items() if "/ess/" not in k
+    }
+    pvs = FakePVS(values)
+    gw = run(pvs.updater(ess=False))
+    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert not any("/ess/" in n for batch in pvs.batches for n in batch)
+    assert gw.ess_control_mode is None
+    assert "Batched read" not in caplog.text
