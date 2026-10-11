@@ -5,7 +5,8 @@ from typing import Any
 
 import aiohttp
 
-from .const import VAR_UPTIME, SupportedFeatures
+from .api import WEBSOCKET_PORT, Endpoint, Variable
+from .const import SupportedFeatures
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -43,6 +44,16 @@ def register_updater(updater: type["PVSUpdater"]) -> Callable[[], None]:
         UPDATERS.remove(updater)
 
     return _remove_updater
+
+
+def _values(response_data: Any) -> dict[str, Any]:
+    """{name: value} from a /vars response's "values" list."""
+    try:
+        return {item["name"]: item["value"] for item in response_data["values"]}
+    except (KeyError, TypeError) as err:
+        raise PVSDataFormatError(
+            f"Cannot construct dictionary from response {response_data}"
+        ) from err
 
 
 def get_updaters() -> list[type[PVSUpdater]]:
@@ -90,7 +101,7 @@ class PVS:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
 
     async def getVarserverVar(self, varname):
-        response_data = await self.getVarserver("/vars", params={"name": varname})
+        response_data = await self.getVarserver(Endpoint.VARS, params={"name": varname})
 
         try:
             value = response_data["values"][0]["value"]
@@ -106,31 +117,16 @@ class PVS:
         whole request if any of the names is unknown."""
         if not names:
             return {}
-        response_data = await self.getVarserver(
-            "/vars", params={"name": ",".join(names)}
+        return _values(
+            await self.getVarserver(Endpoint.VARS, params={"name": ",".join(names)})
         )
-        try:
-            return {item["name"]: item["value"] for item in response_data["values"]}
-        except (KeyError, TypeError) as err:
-            raise PVSDataFormatError(
-                f"Cannot construct dictionary from response {response_data}"
-            ) from err
 
     async def getVarserverVars(self, match):
-        response_data = await self.getVarserver("/vars", params={"match": match})
-
-        try:
-            # construct a new dictionary with the varname
-            # as the key and the value as the value
-            value_dict = {}
-            for item in response_data["values"]:
-                value_dict[item["name"]] = item["value"]
-            _LOGGER.debug(f"Received {len(value_dict)} values: {value_dict}")
-            return value_dict
-        except (KeyError, TypeError) as err:
-            raise PVSDataFormatError(
-                f"Cannot construct dictionary from response {response_data}"
-            ) from err
+        values = _values(
+            await self.getVarserver(Endpoint.VARS, params={"match": match})
+        )
+        _LOGGER.debug(f"Received {len(values)} values: {values}")
+        return values
 
     async def discover(self) -> None:
         """Discover the PVS and its capabilities."""
@@ -145,7 +141,7 @@ class PVS:
             self.fcgi_client.auth_password = auth_password
 
         # A rejected login surfaces here as PVSAuthenticationError.
-        await self.getVarserverVar(VAR_UPTIME)
+        await self.getVarserverVar(Variable.UPTIME)
 
     async def validate(self) -> bool:
         # just try to read some variables to see if the connection to the PVS is ok
@@ -235,13 +231,15 @@ class PVS:
 
     async def enable_telemetry_websocket(self) -> None:
         """Enable the telemetry websocket on the PVS."""
-        await self.getVarserver("/vars", params={"set": "/sys/telemetryws/enable=1"})
+        await self.getVarserver(
+            Endpoint.VARS, params={"set": f"{Variable.TELEMETRYWS_ENABLE}=1"}
+        )
 
-    def get_websocket(self, port: int = 9002) -> PVSWebSocket:
+    def get_websocket(self, port: int = WEBSOCKET_PORT) -> PVSWebSocket:
         """Create a PVSWebSocket pre-configured to enable telemetry on connect.
 
         Args:
-            port: WebSocket port (default 9002)
+            port: WebSocket port
 
         Returns:
             PVSWebSocket instance with enable callback wired up

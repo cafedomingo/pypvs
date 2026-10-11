@@ -13,6 +13,7 @@ from typing import Any
 
 import aiohttp
 
+from .api import WEBSOCKET_PORT
 from .models.livedata import LIVEDATA_FIELD_DEFINITIONS, PVSLiveData
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,14 +46,14 @@ class PVSWebSocket:
     def __init__(
         self,
         host: str,
-        port: int = 9002,
+        port: int = WEBSOCKET_PORT,
         enable_callback: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize the WebSocket client.
 
         Args:
             host: PVS hostname or IP address
-            port: WebSocket port (default 9002)
+            port: WebSocket port
             enable_callback: Optional async callable invoked before each
                 connection attempt to ensure the telemetry websocket is
                 enabled on the PVS.

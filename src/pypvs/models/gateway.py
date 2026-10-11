@@ -6,69 +6,56 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..api import INTERFACES_BY_MODEL, PVS6_ONLY_VARIABLES, Model, Variable, net_state
 from .varserver_coerce import float_var, int_var, str_var
-
-VAR_FWREV = "/sys/info/fwrev"
-VAR_BOARDTYPE = "/sys/info/boardtype"
-VAR_ACTIVE_INTERFACE = "/sys/info/active_interface"
-VAR_USB_ERASE_COUNT = "/sys/pvs/usb_erase_count"
-VAR_BROADBAND_CONNECTED = "/sys/toggle_cell/broadband_connected"
-VAR_CELL_CONNECTED = "/sys/toggle_cell/cell_connected"
-VAR_LOW_DATA_MODE = "/sys/toggle_cell/low_data_mode"
-ESS_RESERVE_SOC = "/ess/config/dcm/control_param/min_customer_soc"
-ESS_CONTROL_MODE = "/ess/config/dcm/mode_param/control_mode"
-VAR_FLASHWEAR = "/sys/pvs/flashwear_type_b"
 
 #: read every poll; all required
 CORE_VARS = (
-    "/sys/info/sys_type",
-    "/sys/info/model",
-    "/sys/info/hwrev",
-    "/sys/info/sw_rev",
-    "/sys/info/uptime",
-    "/sys/info/lmac",
-    "/sys/info/ram_usage",
-    "/sys/info/flash_usage",
-    "/sys/info/cpu_usage",
+    Variable.CPU_USAGE,
+    Variable.FLASH_USAGE,
+    Variable.HWREV,
+    Variable.LMAC,
+    Variable.MODEL,
+    Variable.RAM_USAGE,
+    Variable.SW_REV,
+    Variable.SYS_TYPE,
+    Variable.UPTIME,
 )
-#: documented interfaces per model (doc/varserver-variables-public-*.csv)
-INTERFACES_BY_MODEL = {
-    "PVS6": ("wan0", "wan1", "sta0", "wwan0"),
-    "PVS5": ("wan", "cell", "plc", "sta0"),
-}
-_NET_STATE = re.compile(r"/net/([^/]+)/state")
 
 #: read every few minutes with the interface states, all optional
 EXTRA_VARS = (
-    VAR_FLASHWEAR,
-    VAR_FWREV,
-    VAR_BOARDTYPE,
-    VAR_ACTIVE_INTERFACE,
-    VAR_USB_ERASE_COUNT,
-    VAR_BROADBAND_CONNECTED,
-    VAR_CELL_CONNECTED,
-    VAR_LOW_DATA_MODE,
-    ESS_RESERVE_SOC,
-    ESS_CONTROL_MODE,
+    Variable.ESS_RESERVE_SOC,
+    Variable.ESS_CONTROL_MODE,
+    Variable.ACTIVE_INTERFACE,
+    Variable.BOARDTYPE,
+    Variable.FWREV,
+    Variable.FLASHWEAR,
+    Variable.USB_ERASE_COUNT,
+    Variable.BROADBAND_CONNECTED,
+    Variable.CELL_CONNECTED,
+    Variable.LOW_DATA_MODE,
 )
-ESS_CONFIG_VARS = frozenset({ESS_RESERVE_SOC, ESS_CONTROL_MODE})
-#: not in the PVS5's documented variables
-PVS6_ONLY_VARS = frozenset({VAR_FLASHWEAR, VAR_USB_ERASE_COUNT}) | ESS_CONFIG_VARS
+ESS_CONFIG_VARS = frozenset({Variable.ESS_RESERVE_SOC, Variable.ESS_CONTROL_MODE})
+
+
+def _interfaces(model: str) -> tuple[str, ...]:
+    return INTERFACES_BY_MODEL[
+        Model.PVS5 if model.strip() == Model.PVS5 else Model.PVS6
+    ]
 
 
 def extra_vars(model: str, has_ess: bool) -> tuple[str, ...]:
-    is_pvs5 = model.strip() == "PVS5"
     skip: set[str] = set()
-    if is_pvs5:
-        skip |= PVS6_ONLY_VARS
+    if model.strip() == Model.PVS5:
+        skip |= PVS6_ONLY_VARIABLES
     if not has_ess:
         skip |= ESS_CONFIG_VARS
-    interfaces = INTERFACES_BY_MODEL["PVS5" if is_pvs5 else "PVS6"]
     return tuple(n for n in EXTRA_VARS if n not in skip) + tuple(
-        f"/net/{name}/state" for name in interfaces
+        net_state(name) for name in _interfaces(model)
     )
 
 
+# "TBD" is varserver's default for a string variable nothing has set
 _PLACEHOLDERS = {"", "TBD"}
 
 
@@ -134,13 +121,13 @@ class PVSGateway:
     def from_varserver(cls, data: dict[str, Any]) -> PVSGateway:
         """Initialize from a /sys/info varserver variables"""
 
-        pvs_model = str_var(data, "/sys/info/model").strip()
-        hw_rev = str_var(data, "/sys/info/hwrev").strip()
+        pvs_model = str_var(data, Variable.MODEL).strip()
+        hw_rev = str_var(data, Variable.HWREV).strip()
 
         # flashwear_type_b is reported as a hex string (e.g. "0x02")
         # The decimal value is multiplied by 10 to get a percentage.
         # Only available on PVS6; returns None when absent.
-        raw_flashwear = str_var(data, VAR_FLASHWEAR, None)
+        raw_flashwear = str_var(data, Variable.FLASHWEAR, None)
         flashwear: int | None = None
         if raw_flashwear is not None:
             try:
@@ -149,29 +136,28 @@ class PVSGateway:
                 flashwear = None
 
         return cls(
-            model=str_var(data, "/sys/info/sys_type").strip(),
+            model=str_var(data, Variable.SYS_TYPE).strip(),
             pvs_type=pvs_model,
             hardware_version=f"{pvs_model} {hw_rev}",
-            software_version=str_var(data, "/sys/info/sw_rev"),
-            uptime_s=float_var(data, "/sys/info/uptime"),
-            mac=str_var(data, "/sys/info/lmac"),
-            ram_usage_percent=int_var(data, "/sys/info/ram_usage"),
-            flash_usage_percent=int_var(data, "/sys/info/flash_usage"),
-            cpu_usage_percent=int_var(data, "/sys/info/cpu_usage"),
+            software_version=str_var(data, Variable.SW_REV),
+            uptime_s=float_var(data, Variable.UPTIME),
+            mac=str_var(data, Variable.LMAC),
+            ram_usage_percent=int_var(data, Variable.RAM_USAGE),
+            flash_usage_percent=int_var(data, Variable.FLASH_USAGE),
+            cpu_usage_percent=int_var(data, Variable.CPU_USAGE),
             flashwear_type_b_percent=flashwear,
-            firmware_revision=_text(data, VAR_FWREV),
-            board_type=_text(data, VAR_BOARDTYPE),
-            usb_erase_count=_count(data, VAR_USB_ERASE_COUNT),
-            active_interface=_text(data, VAR_ACTIVE_INTERFACE),
+            firmware_revision=_text(data, Variable.FWREV),
+            board_type=_text(data, Variable.BOARDTYPE),
+            usb_erase_count=_count(data, Variable.USB_ERASE_COUNT),
+            active_interface=_text(data, Variable.ACTIVE_INTERFACE),
             interface_states={
-                match[1]: state
-                for key in data
-                if (match := _NET_STATE.fullmatch(key))
-                and (state := _text(data, key)) is not None
+                name: state
+                for name in _interfaces(pvs_model)
+                if (state := _text(data, net_state(name))) is not None
             },
-            broadband_connected=_flag(data, VAR_BROADBAND_CONNECTED),
-            cell_connected=_flag(data, VAR_CELL_CONNECTED),
-            low_data_mode=_whole(data, VAR_LOW_DATA_MODE),
-            ess_reserve_soc=float_var(data, ESS_RESERVE_SOC),
-            ess_control_mode=_text(data, ESS_CONTROL_MODE),
+            broadband_connected=_flag(data, Variable.BROADBAND_CONNECTED),
+            cell_connected=_flag(data, Variable.CELL_CONNECTED),
+            low_data_mode=_whole(data, Variable.LOW_DATA_MODE),
+            ess_reserve_soc=float_var(data, Variable.ESS_RESERVE_SOC),
+            ess_control_mode=_text(data, Variable.ESS_CONTROL_MODE),
         )

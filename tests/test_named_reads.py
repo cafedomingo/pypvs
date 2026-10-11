@@ -75,3 +75,9 @@ def test_a_registered_updater_gets_named_reads():
     finally:
         remove()
     assert seen == [pvs.getVarserverVarsByName]
+
+
+def test_enabling_the_telemetry_websocket_sets_its_flag():
+    pvs, sent = make_pvs({})
+    asyncio.run(pvs.enable_telemetry_websocket())
+    assert sent == [{"set": "/sys/telemetryws/enable=1"}]

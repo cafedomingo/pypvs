@@ -8,6 +8,7 @@ import os
 
 import aiohttp
 
+from pypvs.api import Endpoint, Variable
 from pypvs.pvs_fcgi import PVSFCGIClient
 
 logging.basicConfig(level=logging.DEBUG)
@@ -38,7 +39,7 @@ async def main():
         # await client.login_basic()
 
         response = await client.execute_post_request(
-            "/vars", params={"name": "/sys/info/uptime"}
+            Endpoint.VARS, params={"name": Variable.UPTIME}
         )
         print(f"Response: {response}")
 

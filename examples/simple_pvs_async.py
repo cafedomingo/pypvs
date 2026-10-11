@@ -9,6 +9,7 @@ import time
 
 import aiohttp
 
+from pypvs.api import Match, Variable
 from pypvs.exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from pypvs.pvs import PVS
 
@@ -17,11 +18,11 @@ logging.basicConfig(level=logging.DEBUG)
 
 async def fetch_data(pvs):
     # get the uptime
-    uptime = await pvs.getVarserverVar("/sys/info/uptime")
+    uptime = await pvs.getVarserverVar(Variable.UPTIME)
     # print both the uptime and the local time
     print(f">>>>>> Uptime: {uptime}, Local time: {time.time()}")
 
-    livedata = await pvs.getVarserverVars("/sys/livedata")
+    livedata = await pvs.getVarserverVars(Match.LIVEDATA)
     # print livedata well formatted
     print(">>>>>> LiveData:")
     for key, value in livedata.items():

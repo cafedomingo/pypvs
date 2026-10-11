@@ -3,6 +3,8 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .api import Variable
+
 
 class PVSFirmware:
     """The PVS serial number (its last 5 characters are the default password)
@@ -18,8 +20,8 @@ class PVSFirmware:
 
     async def setup(self) -> None:
         """Read the serial number and LAN MAC address."""
-        self._serial_number = await self._request_var("/sys/info/serialnum")
-        self._lmac = await self._request_var("/sys/info/lmac")
+        self._serial_number = await self._request_var(Variable.SERIALNUM)
+        self._lmac = await self._request_var(Variable.LMAC)
 
     @property
     def serial(self) -> str | None:

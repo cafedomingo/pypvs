@@ -1,7 +1,8 @@
 import logging
 from typing import Any
 
-from ..const import VARS_MATCH_INVERTERS, SupportedFeatures
+from ..api import Match
+from ..const import SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.inverter import PVSInverter
 from ..models.pvs import PVSData
@@ -18,10 +19,10 @@ class PVSProductionInvertersUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            inverters_dict = await self._request_vars(VARS_MATCH_INVERTERS)
+            inverters_dict = await self._request_vars(Match.INVERTERS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug(
-                "No inverters found on varserver filter %s: %s", VARS_MATCH_INVERTERS, e
+                "No inverters found on varserver filter %s: %s", Match.INVERTERS, e
             )
             return None
         try:
@@ -32,9 +33,7 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             # An empty answer (e.g. right after a PVS reboot or at night) is not
             # proof there are no inverters; leave the feature unset so update()
             # re-probes with backoff.
-            _LOGGER.debug(
-                "Varserver filter %s returned no inverters", VARS_MATCH_INVERTERS
-            )
+            _LOGGER.debug("Varserver filter %s returned no inverters", Match.INVERTERS)
             return None
         self._supported_features |= SupportedFeatures.INVERTERS
         return self._supported_features
@@ -42,9 +41,7 @@ class PVSProductionInvertersUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            inverters_dict: dict[str, Any] = await self._request_vars(
-                VARS_MATCH_INVERTERS
-            )
+            inverters_dict: dict[str, Any] = await self._request_vars(Match.INVERTERS)
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("Inverter data unavailable: %s", e)
@@ -73,7 +70,7 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             _LOGGER.info("Inverter data recovered")
             self._data_unavailable = False
 
-        pvs_data.raw[VARS_MATCH_INVERTERS] = inverters_data
+        pvs_data.raw[Match.INVERTERS] = inverters_data
         pvs_data.inverters = {
             inverter["sn"]: PVSInverter.from_varserver(inverter)
             for inverter in inverters_data

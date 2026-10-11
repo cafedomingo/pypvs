@@ -6,6 +6,8 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from pypvs.firmware import PVSFirmware
 from pypvs.models.ess import PVSESS
 from pypvs.models.gateway import PVSGateway
@@ -13,6 +15,7 @@ from pypvs.models.inverter import PVSInverter
 from pypvs.models.livedata import PVSLiveData
 from pypvs.models.meter import PVSMeter
 from pypvs.models.transfer_switch import PVSTransferSwitch
+from pypvs.models.varserver_coerce import report_time_var
 
 # Canonical sample instant for msmtEps and /sys/livedata/time in this module.
 SAMPLE_TS_UTC = datetime.strptime("2026-04-10T11:30:00Z", "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -39,34 +42,34 @@ INVERTER_SAMPLE = {
 
 # --- Gateway
 GATEWAY_SYS_INFO_ANON = {
-    "/sys/info/model": "PVS6 ",
-    "/sys/info/hwrev": "6.02 ",
-    "/sys/info/sys_type": "Storage ",
-    "/sys/info/sw_rev": "2025.01.01.90001",
-    "/sys/info/uptime": 14042.9,
-    "/sys/info/lmac": "02:aa:bb:cc:dd:01",
-    "/sys/info/ram_usage": 7,
-    "/sys/info/flash_usage": 73,
     "/sys/info/cpu_usage": 6,
+    "/sys/info/flash_usage": 73,
+    "/sys/info/hwrev": "6.02 ",
+    "/sys/info/lmac": "02:aa:bb:cc:dd:01",
+    "/sys/info/model": "PVS6 ",
+    "/sys/info/ram_usage": 7,
+    "/sys/info/sw_rev": "2025.01.01.90001",
+    "/sys/info/sys_type": "Storage ",
+    "/sys/info/uptime": 14042.9,
 }
 
 # --- Meters
 METER_PRODUCTION_ANON = {
-    "msmtEps": "2026-04-10T11:30:00Z",
-    "sn": "PVS6M90000001p",
-    "prodMdlNm": "PVS6M0400p",
     "ctSclFctr": 100,
     "freqHz": 59.988712,
     "i1A": 0.0,
     "i2A": 0.0,
+    "msmtEps": "2026-04-10T11:30:00Z",
     "negLtea3phsumKwh": 0.0,
     "netLtea3phsumKwh": 11991.549805,
     "p1Kw": 0.0,
     "p2Kw": 0.0,
     "p3phsumKw": 2.972999,
     "posLtea3phsumKwh": 0.0,
+    "prodMdlNm": "PVS6M0400p",
     "q3phsumKvar": 0.184966,
     "s3phsumKva": 2.982468,
+    "sn": "PVS6M90000001p",
     "totPfRto": 0.996842,
     "v12V": 243.58197,
     "v1nV": 0.0,
@@ -74,21 +77,21 @@ METER_PRODUCTION_ANON = {
 }
 
 METER_NET_ANON = {
-    "msmtEps": "2026-04-10T11:30:00Z",
-    "sn": "PVS6M90000002c",
-    "prodMdlNm": "PVS6M0400c",
     "ctSclFctr": 100,
     "freqHz": 59.988712,
     "i1A": 5.867875,
     "i2A": 6.082969,
+    "msmtEps": "2026-04-10T11:30:00Z",
     "negLtea3phsumKwh": 5842.859863,
     "netLtea3phsumKwh": -5842.830078,
     "p1Kw": -0.711292,
     "p2Kw": -0.738008,
     "p3phsumKw": -1.449301,
     "posLtea3phsumKwh": 0.01,
+    "prodMdlNm": "PVS6M0400c",
     "q3phsumKvar": -0.101444,
     "s3phsumKva": 1.455515,
+    "sn": "PVS6M90000002c",
     "totPfRto": -0.995831,
     "v12V": 243.58197,
     "v1nV": 121.751556,
@@ -97,11 +100,11 @@ METER_NET_ANON = {
 
 # --- Transfer switch
 TRANSFER_SWITCH_ANON = {
-    "msmtEps": "2026-04-10T11:30:00Z",
-    "sn": "MIDC-TEST-UNIT-01",
-    "prodMdlNm": "SunPower MIDC",
     "midStEnum": "MID_STATE_CLOSED",
+    "msmtEps": "2026-04-10T11:30:00Z",
+    "prodMdlNm": "SunPower MIDC",
     "pvd1StEnum": "PVD_STATE_CLOSED",
+    "sn": "MIDC-TEST-UNIT-01",
     "tDegc": 28.0,
     "v1nGridV": 122.41333,
     "v1nV": 122.519333,
@@ -113,9 +116,6 @@ TRANSFER_SWITCH_ANON = {
 # --- ESS
 ESS_ANON_SN = "ESS-TEST-UNIT-00001"
 ESS_ANON = {
-    "msmtEps": "2026-04-10T11:30:00Z",
-    "sn": ESS_ANON_SN,
-    "prodMdlNm": "SPWR-Equinox-model",
     "chrgLimitPmaxKw": 10.762,
     "customerSocVal": 0.59,
     "dischrgLimPmaxKw": 10.004,
@@ -123,10 +123,13 @@ ESS_ANON = {
     "maxVBattCellV": 3.28275,
     "minTBattCellDegc": 2.33,
     "minVBattCellV": 3.27965,
+    "msmtEps": "2026-04-10T11:30:00Z",
     "negLtea3phsumKwh": 7492.96582,
     "opMode": "ENERGY_ARBITRAGE",
     "p3phsumKw": 0.326787,
     "posLtea3phsumKwh": 5672.499023,
+    "prodMdlNm": "SPWR-Equinox-model",
+    "sn": ESS_ANON_SN,
     "socVal": 0.65,
     "sohVal": 1,
     "tInvtrDegc": 36.619999,
@@ -137,34 +140,34 @@ ESS_ANON = {
 
 # --- Live data
 LIVEDATA_ANON = {
-    "/sys/livedata/time": SAMPLE_UNIX,
-    "/sys/livedata/pv_p": 2.971486,
-    "/sys/livedata/pv_en": 11992.030273,
-    "/sys/livedata/net_p": -1.44736,
-    "/sys/livedata/net_en": -5843.060059,
-    "/sys/livedata/site_load_p": 1.524126,
-    "/sys/livedata/site_load_en": 6148.970215,
+    "/sys/livedata/backupTimeRemaining": 0,
     "/sys/livedata/ess_en": "nan",
     "/sys/livedata/ess_p": "nan",
-    "/sys/livedata/soc": "nan",
-    "/sys/livedata/backupTimeRemaining": 0,
     "/sys/livedata/midstate": 2,
+    "/sys/livedata/net_en": -5843.060059,
+    "/sys/livedata/net_p": -1.44736,
+    "/sys/livedata/pv_en": 11992.030273,
+    "/sys/livedata/pv_p": 2.971486,
+    "/sys/livedata/site_load_en": 6148.970215,
+    "/sys/livedata/site_load_p": 1.524126,
+    "/sys/livedata/soc": "nan",
+    "/sys/livedata/time": SAMPLE_UNIX,
 }
 
 # Live data with ESS fields
 LIVEDATA_WITH_ESS_ANON = {
-    "/sys/livedata/time": SAMPLE_UNIX,
-    "/sys/livedata/pv_p": 0.014,
-    "/sys/livedata/pv_en": 24890.25,
-    "/sys/livedata/net_p": 0.015,
-    "/sys/livedata/net_en": -8750.0,
-    "/sys/livedata/site_load_p": 0.382,
-    "/sys/livedata/site_load_en": 14500.0,
+    "/sys/livedata/backupTimeRemaining": 1100,
     "/sys/livedata/ess_en": -1800.5,
     "/sys/livedata/ess_p": 0.35,
-    "/sys/livedata/soc": 0.575,
-    "/sys/livedata/backupTimeRemaining": 1100,
     "/sys/livedata/midstate": 2,
+    "/sys/livedata/net_en": -8750.0,
+    "/sys/livedata/net_p": 0.015,
+    "/sys/livedata/pv_en": 24890.25,
+    "/sys/livedata/pv_p": 0.014,
+    "/sys/livedata/site_load_en": 14500.0,
+    "/sys/livedata/site_load_p": 0.382,
+    "/sys/livedata/soc": 0.575,
+    "/sys/livedata/time": SAMPLE_UNIX,
 }
 
 
@@ -390,3 +393,15 @@ def test_str_var_defaults():
     assert str_var({}, "k") == ""
     assert str_var({}, "k", None) is None
     assert str_var({"k": 5}, "k", None) == "5"
+
+
+@pytest.mark.parametrize(
+    "data, expected",
+    [
+        ({"msmtEps": "2024-09-30T16:15:00Z"}, 1727712900),
+        ({}, 0),
+        ({"msmtEps": "not a date"}, 0),
+    ],
+)
+def test_report_time(data, expected):
+    assert report_time_var(data) == expected
