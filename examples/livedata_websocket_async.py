@@ -75,7 +75,7 @@ async def main():
                 if live_data.ess_en is not None:
                     print(f"  ESS Energy:       {live_data.ess_en} kWh")
                 if live_data.soc is not None:
-                    print(f"  Battery SOC:      {live_data.soc} %")
+                    print(f"  Battery SOC:      {live_data.soc:.0%}")
                 if live_data.backup_time_remaining is not None:
                     print(f"  Backup Time:      {live_data.backup_time_remaining} min")
                 if live_data.midstate is not None:
