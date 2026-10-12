@@ -38,7 +38,7 @@ class PVSFCGIClient:
     @pvs_url.setter
     def pvs_url(self, value: str | None):
         self._pvs_url = value
-        _LOGGER.debug(f"PVS URL set to {self._pvs_url}")
+        _LOGGER.debug("PVS URL set to %s", self._pvs_url)
 
     async def login_basic(self):
         if not self.auth_user:

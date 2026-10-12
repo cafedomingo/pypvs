@@ -92,7 +92,7 @@ def test_setup_with_rejected_login_raises_authentication_error():
 
 def test_missing_var_raises_data_format_error_with_details():
     pvs = make_pvs(FakeSession(vars_body={"count": 0, "values": []}))
-    with pytest.raises(PVSDataFormatError, match="/sys/info/uptime.*'values': \\[\\]"):
+    with pytest.raises(PVSDataFormatError, match=r"/sys/info/uptime.*'values': \[\]"):
         asyncio.run(pvs.getVarserverVar("/sys/info/uptime"))
 
 

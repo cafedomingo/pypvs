@@ -235,10 +235,11 @@ def test_a_slow_pvs_costs_one_timeout_per_refresh():
     timeout = PVSCommunicationError("Cannot reach the PVS: timeout")
     pvs = FakePVS(
         {**SYS_INFO, **EXTRAS, **NET},
-        failures={name: timeout for name in EXTRAS},
+        failures=dict.fromkeys(EXTRAS, timeout),
     )
     run(pvs.updater())
-    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert pvs.calls == []
+    assert len(pvs.batches) == 2
 
 
 def test_an_extra_that_appears_later_is_picked_up(monkeypatch):
@@ -299,7 +300,8 @@ def test_a_value_that_stays_empty_is_dropped(monkeypatch):
 def test_core_and_extras_take_two_requests():
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     gw = run(pvs.updater())
-    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert pvs.calls == []
+    assert len(pvs.batches) == 2
     assert gw.uptime_s == 81436.77
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
     assert gw.interface_states["wan0"] == "online"
@@ -365,7 +367,8 @@ def test_pvs5_is_not_asked_for_pvs6_only_vars():
     values["/net/sta0/state"] = "ready"
     pvs = FakePVS(values)
     gw = run(pvs.updater())
-    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert pvs.calls == []
+    assert len(pvs.batches) == 2
     assert not pvs6_only & {n for batch in pvs.batches for n in batch}
     assert gw.interface_states["wan"] == "online"
 
@@ -407,7 +410,8 @@ def test_without_a_battery_its_config_is_not_asked_for(caplog):
     }
     pvs = FakePVS(values)
     gw = run(pvs.updater(ess=False))
-    assert pvs.calls == [] and len(pvs.batches) == 2
+    assert pvs.calls == []
+    assert len(pvs.batches) == 2
     assert not any("/ess/" in n for batch in pvs.batches for n in batch)
     assert gw.ess_control_mode is None
     assert "Batched read" not in caplog.text

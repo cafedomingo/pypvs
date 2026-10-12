@@ -54,7 +54,6 @@ def test_a_registered_updater_is_built_with_the_pvs():
     class Custom(PVSUpdater):
         async def probe(self, discovered_features):
             seen.append(self._pvs)
-            return None
 
         async def update(self, pvs_data):
             pass
