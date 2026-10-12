@@ -8,7 +8,7 @@ from ..const import SupportedFeatures
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
 from ..models.gateway import CORE_VARS, PVSGateway, extra_vars
 from ..models.pvs import PVSData
-from .base import PVSUpdater
+from .base import PVSUpdater, Varserver
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,8 +22,8 @@ EMPTY_REFRESHES_BEFORE_DROP = 3
 class PVSGatewayUpdater(PVSUpdater):
     """Class to handle updates for the PVS gateway."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, pvs: Varserver) -> None:
+        super().__init__(pvs)
         self._extras: dict[str, Any] = {}
         self._extras_at: float | None = None
         self._has_ess = False
@@ -49,7 +49,7 @@ class PVSGatewayUpdater(PVSUpdater):
         batch: dict[str, Any] = {}
         batch_error: PVSError | None = None
         try:
-            batch = await self._request_named_vars(list(names))
+            batch = await self._pvs.getVarserverVarsByName(list(names))
         except (PVSCommunicationError, PVSDataFormatError) as e:
             if isinstance(e, PVSCommunicationError) and e.status is None:
                 raise
@@ -60,7 +60,7 @@ class PVSGatewayUpdater(PVSUpdater):
             if name in values:
                 continue
             try:
-                values[name] = await self._request_var(name)
+                values[name] = await self._pvs.getVarserverVar(name)
             except PVSDataFormatError as e:
                 errors[name] = e
             except PVSCommunicationError as e:

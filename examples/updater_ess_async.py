@@ -36,11 +36,7 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        ess_updater = PVSESSUpdater(
-            pvs.getVarserverVar,
-            pvs.getVarserverVars,
-            pvs.getVarserverVarsByName,
-        )
+        ess_updater = PVSESSUpdater(pvs)
 
         discovered_features = SupportedFeatures(0)
         ess_is_there = await ess_updater.probe(discovered_features)

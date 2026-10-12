@@ -100,13 +100,13 @@ class PVS:
         except Exception as err:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
 
-    async def getVarserverVar(self, varname):
+    async def getVarserverVar(self, varname: str) -> Any:
         response_data = await self.getVarserver(Endpoint.VARS, params={"name": varname})
 
         try:
             value = response_data["values"][0]["value"]
             _LOGGER.debug(f"Received {varname}: {value}")
-            return response_data["values"][0]["value"]
+            return value
         except (KeyError, IndexError, TypeError) as err:
             raise PVSDataFormatError(
                 f"Cannot extract {varname} from response {response_data}"
@@ -121,7 +121,7 @@ class PVS:
             await self.getVarserver(Endpoint.VARS, params={"name": ",".join(names)})
         )
 
-    async def getVarserverVars(self, match):
+    async def getVarserverVars(self, match: str) -> dict[str, Any]:
         values = _values(
             await self.getVarserver(Endpoint.VARS, params={"match": match})
         )
@@ -154,11 +154,7 @@ class PVS:
         updaters: list[PVSUpdater] = []
 
         for updater in get_updaters():
-            klass = updater(
-                request_var=self.getVarserverVar,
-                request_vars=self.getVarserverVars,
-                request_named_vars=self.getVarserverVarsByName,
-            )
+            klass = updater(self)
             if updater_features := await klass.probe(supported_features):
                 supported_features |= updater_features
                 updaters.append(klass)
