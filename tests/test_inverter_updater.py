@@ -43,7 +43,7 @@ def test_probe_finds_inverters():
 def test_probe_with_empty_answer_reports_not_found():
     """An empty answer (PVS rebooting, night) must not count as discovered."""
     updater = make_updater([{}])
-    assert asyncio.run(updater.probe(SupportedFeatures(0))) is None
+    assert not asyncio.run(updater.probe(SupportedFeatures(0)))
 
 
 def test_update_recovers_after_empty_answer(caplog):

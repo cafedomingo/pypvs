@@ -23,6 +23,12 @@ class Model(_Path):
     PVS6 = "PVS6"
 
 
+class SysType(_Path):
+    UNKNOWN = "Unknown"
+    PV_ONLY = "PV-only"
+    STORAGE = "Storage"
+
+
 class Match(_Path):
     """Prefixes for /vars?match= queries."""
 

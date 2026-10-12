@@ -22,7 +22,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
             await self._pvs.getVarserverVars(Match.METERS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug("No meters found on varserver filter %s: %s", Match.METERS, e)
-            return None
+            return self._supported_features
         self._supported_features |= SupportedFeatures.METERING
         return self._supported_features
 

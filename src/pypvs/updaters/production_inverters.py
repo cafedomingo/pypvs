@@ -24,7 +24,7 @@ class PVSProductionInvertersUpdater(PVSUpdater):
             _LOGGER.debug(
                 "No inverters found on varserver filter %s: %s", Match.INVERTERS, e
             )
-            return None
+            return self._supported_features
         try:
             found = bool(group_device_vars(inverters_dict))
         except ValueError:
@@ -32,9 +32,9 @@ class PVSProductionInvertersUpdater(PVSUpdater):
         if not found:
             # An empty answer (e.g. right after a PVS reboot or at night) is not
             # proof there are no inverters; leave the feature unset so update()
-            # re-probes with backoff.
+            # re-probes.
             _LOGGER.debug("Varserver filter %s returned no inverters", Match.INVERTERS)
-            return None
+            return self._supported_features
         self._supported_features |= SupportedFeatures.INVERTERS
         return self._supported_features
 

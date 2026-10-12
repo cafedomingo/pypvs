@@ -92,12 +92,6 @@ class FakePVS:
         return updater
 
 
-class Clock:
-    def __init__(self, monkeypatch):
-        self.now = 1000.0
-        monkeypatch.setattr(gateway_module.time, "monotonic", lambda: self.now)
-
-
 def run(updater):
     data = PVSData()
     asyncio.run(updater.update(data))
@@ -176,8 +170,7 @@ def test_partial_support_keeps_the_rest():
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
 
 
-def test_extras_are_refreshed_every_few_minutes_not_every_poll(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_extras_are_refreshed_every_few_minutes_not_every_poll(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -192,8 +185,7 @@ def test_extras_are_refreshed_every_few_minutes_not_every_poll(monkeypatch):
     assert "/sys/info/boardtype" in pvs.asked()
 
 
-def test_a_timeout_on_an_extra_keeps_its_last_value(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_a_timeout_on_an_extra_keeps_its_last_value(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -221,8 +213,7 @@ def test_no_failure_on_an_extra_fails_the_gateway_update():
         assert gw.uptime_s == 81436.77, error
 
 
-def test_an_empty_answer_keeps_the_last_value(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_an_empty_answer_keeps_the_last_value(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -242,9 +233,8 @@ def test_a_slow_pvs_costs_one_timeout_per_refresh():
     assert len(pvs.batches) == 2
 
 
-def test_an_extra_that_appears_later_is_picked_up(monkeypatch):
+def test_an_extra_that_appears_later_is_picked_up(clock):
     """e.g. a battery commissioned after the exporter started."""
-    clock = Clock(monkeypatch)
     values = {**SYS_INFO, **NET}
     updater = FakePVS(values).updater()
     assert run(updater).ess_control_mode is None
@@ -284,8 +274,7 @@ def test_a_persistent_error_on_one_extra_does_not_starve_the_rest():
     assert gw.interface_states["wan0"] == "online"
 
 
-def test_a_value_that_stays_empty_is_dropped(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_a_value_that_stays_empty_is_dropped(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -313,8 +302,7 @@ def test_a_missing_required_var_fails_the_update():
         run(FakePVS(values).updater())
 
 
-def test_extras_keep_their_values_through_errors(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_extras_keep_their_values_through_errors(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -394,8 +382,7 @@ def test_a_malformed_batch_falls_back_to_single_reads():
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
 
 
-def test_an_extra_that_starts_answering_400_is_dropped(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_an_extra_that_starts_answering_400_is_dropped(clock):
     values = {**SYS_INFO, **EXTRAS, **NET}
     updater = FakePVS(values).updater()
     assert run(updater).ess_control_mode == "SELF_CONSUMPTION"

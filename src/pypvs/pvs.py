@@ -5,7 +5,7 @@ from typing import Any
 
 import aiohttp
 
-from .api import WEBSOCKET_PORT, Endpoint, Variable
+from .api import WEBSOCKET_PORT, Endpoint, SysType, Variable
 from .const import SupportedFeatures
 from .exceptions import (
     PVSAuthenticationError,
@@ -32,6 +32,14 @@ UPDATERS: list[type["PVSUpdater"]] = [
     PVSTransferSwitchUpdater,
     PVSGatewayUpdater,  # last, so its probe knows whether there is an ESS
 ]
+
+# Meters are built into every PVS. Nothing says up front whether a PVS lists
+# inverters, so they are always looked for.
+EXPECTED_FEATURES = SupportedFeatures.INVERTERS | SupportedFeatures.METERING
+STORAGE_FEATURES = SupportedFeatures.ESS | SupportedFeatures.TRANSFER_SWITCH
+# The PVS answers 400 for device types it hasn't listed yet, e.g. for a while
+# after a boot, so expected ones that are missing are probed for again.
+REPROBE_S = 300
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,10 +77,7 @@ class PVS:
         self._updaters: list[PVSUpdater] = []
         self.data: PVSData | None = None
 
-        # Exponential backoff for inverter re-probe attempts
-        self._inverter_reprobe_interval: int = 60  # seconds
-        self._inverter_last_reprobe: float | None = None
-        self._inverter_reprobe_max: int = 1800  # 30 minutes
+        self._probed_at = 0.0
 
         self.fcgi_client = PVSFCGIClient(
             session=session, auth_user=user, auth_password=password
@@ -152,50 +157,29 @@ class PVS:
         """Probe for model and supported features."""
         supported_features = SupportedFeatures(0)
         updaters: list[PVSUpdater] = []
+        previous = {type(updater): updater for updater in self._updaters}
 
-        for updater in get_updaters():
-            klass = updater(self)
-            if updater_features := await klass.probe(supported_features):
+        for updater_class in get_updaters():
+            # reused, so one that found its devices before keeps them through a
+            # failed re-probe read
+            updater = previous.get(updater_class) or updater_class(self)
+            if updater_features := await updater.probe(supported_features):
                 supported_features |= updater_features
-                updaters.append(klass)
+                updaters.append(updater)
 
         if not supported_features & SupportedFeatures.GATEWAY:
             raise PVSProbeFailed("Unable to find gateway information")
 
         self._updaters = updaters
         self._supported_features = supported_features
+        self._probed_at = time.monotonic()
 
     async def update(self) -> PVSData:
         """Update data."""
-        if not self._supported_features:
+        if not self._supported_features or (
+            self._missing_features() and time.monotonic() - self._probed_at >= REPROBE_S
+        ):
             await self.probe()
-            features = self._supported_features or SupportedFeatures(0)
-            if not (features & SupportedFeatures.INVERTERS):
-                # start the re-probe backoff from this probe
-                self._inverter_last_reprobe = time.monotonic()
-        elif not (self._supported_features & SupportedFeatures.INVERTERS):
-            # Inverters not yet discovered — devices may have been offline
-            # during initial probe. Re-probe with exponential backoff.
-            now = time.monotonic()
-            if (
-                self._inverter_last_reprobe is None
-                or now - self._inverter_last_reprobe >= self._inverter_reprobe_interval
-            ):
-                _LOGGER.debug(
-                    "Inverters not yet discovered, re-probing (next retry in %ds)",
-                    self._inverter_reprobe_interval,
-                )
-                self._inverter_last_reprobe = now
-                await self.probe()
-                if not (self._supported_features & SupportedFeatures.INVERTERS):
-                    self._inverter_reprobe_interval = min(
-                        self._inverter_reprobe_interval * 2,
-                        self._inverter_reprobe_max,
-                    )
-                else:
-                    # Found inverters — reset backoff state
-                    self._inverter_reprobe_interval = 60
-                    self._inverter_last_reprobe = None
 
         data = PVSData()
         for updater in self._updaters:
@@ -203,6 +187,13 @@ class PVS:
 
         self.data = data
         return data
+
+    def _missing_features(self) -> SupportedFeatures:
+        expected = EXPECTED_FEATURES
+        gateway = self.data.gateway if self.data else None
+        if gateway and gateway.model == SysType.STORAGE:
+            expected |= STORAGE_FEATURES
+        return expected & ~self.supported_features
 
     @property
     def host(self) -> str | None:

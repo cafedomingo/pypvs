@@ -26,7 +26,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
                 Match.TRANSFER_SWITCH,
                 e,
             )
-            return None
+            return self._supported_features
         self._supported_features |= SupportedFeatures.TRANSFER_SWITCH
         return self._supported_features
 

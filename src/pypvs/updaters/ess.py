@@ -22,7 +22,7 @@ class PVSESSUpdater(PVSUpdater):
             await self._pvs.getVarserverVars(Match.ESS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug("No ESS found on varserver filter %s: %s", Match.ESS, e)
-            return None
+            return self._supported_features
         self._supported_features |= SupportedFeatures.ESS
         return self._supported_features
 
