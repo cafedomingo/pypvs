@@ -60,11 +60,13 @@ async def main():
         print("Listening for services... Press Ctrl+C to stop.")
         while True:
             await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        print("\nStopping...")
     finally:
         zeroconf.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # asyncio.run cancels main() on Ctrl+C and raises KeyboardInterrupt here
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nStopping...")
