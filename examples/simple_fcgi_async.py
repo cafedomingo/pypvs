@@ -33,9 +33,6 @@ async def main():
             print("Please set the PVS_HOST environment variable with the PVS IP.")
         client.pvs_url = f"https://{host}"  # PVS URL with configurable host
 
-        # Use basic authentication with the username and password
-        client.set_pvs_details({"serial": pvs_serial})
-
         # We don't need to call login_basic() because refresh of the session cookies
         # is handled automatically by the PVSFCGIClient class.
         # await client.login_basic()

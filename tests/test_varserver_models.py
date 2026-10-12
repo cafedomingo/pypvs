@@ -6,9 +6,6 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-import pytest
-
-from pypvs.exceptions import PVSFirmwareCheckError
 from pypvs.firmware import PVSFirmware
 from pypvs.models.ess import PVSESS
 from pypvs.models.gateway import PVSGateway
@@ -359,36 +356,18 @@ def test_ess_from_varserver_sample_payload():
 
 
 def test_pvs_firmware_setup_populates_auth_fields():
-    """setup() loads serial, SSID, and LAN MAC from varserver paths."""
+    """setup() loads the serial and LAN MAC from varserver paths."""
 
     async def request_var(path: str) -> Any:
         return {
             "/sys/info/serialnum": "ZT199999000000A0001",
-            "/sys/info/ssid": "TestSiteSSID00",
             "/sys/info/lmac": "01:23:45:67:89:ab",
         }[path]
 
     fw = PVSFirmware(request_var)
     asyncio.run(fw.setup())
     assert fw.serial == "ZT199999000000A0001"
-    assert fw.ssid == "TestSiteSSID00"
     assert fw.lmac == "01:23:45:67:89:ab"
-
-
-def test_pvs_firmware_setup_keyerror_becomes_firmware_check_error():
-    """Missing varserver key surfaces as PVSFirmwareCheckError."""
-
-    async def request_var(path: str) -> Any:
-        if path == "/sys/info/ssid":
-            raise KeyError("/sys/info/ssid")
-        return {
-            "/sys/info/serialnum": "ZT199999000000A0001",
-            "/sys/info/lmac": "01:23:45:67:89:ab",
-        }[path]
-
-    fw = PVSFirmware(request_var)
-    with pytest.raises(PVSFirmwareCheckError):
-        asyncio.run(fw.setup())
 
 
 def test_missing_lifetime_counter_is_not_zero():

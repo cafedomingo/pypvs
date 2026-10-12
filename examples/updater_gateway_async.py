@@ -9,7 +9,6 @@ import aiohttp
 
 from pypvs.const import SupportedFeatures
 from pypvs.exceptions import ENDPOINT_PROBE_EXCEPTIONS
-from pypvs.models.common import CommonProperties
 from pypvs.models.pvs import PVSData
 from pypvs.pvs import PVS
 from pypvs.updaters.gateway import PVSGatewayUpdater
@@ -37,10 +36,7 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        common_properties = CommonProperties()
-        gateway_updater = PVSGatewayUpdater(
-            pvs.getVarserverVar, pvs.getVarserverVars, common_properties
-        )
+        gateway_updater = PVSGatewayUpdater(pvs.getVarserverVar, pvs.getVarserverVars)
 
         discovered_features = SupportedFeatures(0)
         gateway_is_there = await gateway_updater.probe(discovered_features)

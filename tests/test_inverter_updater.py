@@ -6,7 +6,6 @@ import asyncio
 import logging
 
 from pypvs.const import SupportedFeatures
-from pypvs.models.common import CommonProperties
 from pypvs.models.pvs import PVSData
 from pypvs.updaters.production_inverters import PVSProductionInvertersUpdater
 
@@ -34,7 +33,6 @@ def make_updater(responses):
     return PVSProductionInvertersUpdater(
         request_var=request_var,
         request_vars=request_vars,
-        common_properties=CommonProperties(),
     )
 
 
@@ -102,7 +100,6 @@ def test_meter_updater_ignores_short_var_names():
     updater = PVSProductionMetersUpdater(
         request_var=request_var,
         request_vars=request_vars,
-        common_properties=CommonProperties(),
     )
     out = PVSData()
     asyncio.run(updater.update(out))
