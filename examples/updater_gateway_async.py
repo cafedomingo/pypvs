@@ -36,7 +36,11 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        gateway_updater = PVSGatewayUpdater(pvs.getVarserverVar, pvs.getVarserverVars)
+        gateway_updater = PVSGatewayUpdater(
+            pvs.getVarserverVar,
+            pvs.getVarserverVars,
+            pvs.getVarserverVarsByName,
+        )
 
         discovered_features = SupportedFeatures(0)
         gateway_is_there = await gateway_updater.probe(discovered_features)
