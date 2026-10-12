@@ -36,11 +36,7 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        meter_updater = PVSProductionMetersUpdater(
-            pvs.getVarserverVar,
-            pvs.getVarserverVars,
-            pvs.getVarserverVarsByName,
-        )
+        meter_updater = PVSProductionMetersUpdater(pvs)
 
         discovered_features = SupportedFeatures(0)
         meter_is_there = await meter_updater.probe(discovered_features)

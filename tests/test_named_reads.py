@@ -48,12 +48,12 @@ def test_a_malformed_answer_is_a_data_format_error(answer):
         asyncio.run(pvs.getVarserverVarsByName(["/a"]))
 
 
-def test_a_registered_updater_gets_named_reads():
+def test_a_registered_updater_is_built_with_the_pvs():
     seen = []
 
     class Custom(PVSUpdater):
         async def probe(self, discovered_features):
-            seen.append(self._request_named_vars)
+            seen.append(self._pvs)
             return None
 
         async def update(self, pvs_data):
@@ -74,7 +74,7 @@ def test_a_registered_updater_gets_named_reads():
         asyncio.run(pvs.probe())
     finally:
         remove()
-    assert seen == [pvs.getVarserverVarsByName]
+    assert seen == [pvs]
 
 
 def test_enabling_the_telemetry_websocket_sets_its_flag():

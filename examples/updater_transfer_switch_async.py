@@ -36,11 +36,7 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        transfer_switch_updater = PVSTransferSwitchUpdater(
-            pvs.getVarserverVar,
-            pvs.getVarserverVars,
-            pvs.getVarserverVarsByName,
-        )
+        transfer_switch_updater = PVSTransferSwitchUpdater(pvs)
 
         discovered_features = SupportedFeatures(0)
         transfer_switch_is_there = await transfer_switch_updater.probe(

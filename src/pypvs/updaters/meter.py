@@ -19,7 +19,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            await self._request_vars(Match.METERS)
+            await self._pvs.getVarserverVars(Match.METERS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug("No meters found on varserver filter %s: %s", Match.METERS, e)
             return None
@@ -29,7 +29,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            meters_dict: dict[str, Any] = await self._request_vars(Match.METERS)
+            meters_dict: dict[str, Any] = await self._pvs.getVarserverVars(Match.METERS)
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("Meter data unavailable: %s", e)

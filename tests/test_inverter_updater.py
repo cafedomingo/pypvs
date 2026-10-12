@@ -20,25 +20,18 @@ def inverter_vars(*serials):
     return out
 
 
-async def unused(names):
-    raise AssertionError("not used")
+class MatchReads:
+    """Answers each match query with the next of `responses`."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+
+    async def getVarserverVars(self, match):
+        return self.responses.pop(0)
 
 
 def make_updater(responses):
-    """Each call to request_vars returns the next item of `responses`."""
-    queue = list(responses)
-
-    async def request_vars(match):
-        return queue.pop(0)
-
-    async def request_var(name):
-        raise AssertionError("not used")
-
-    return PVSProductionInvertersUpdater(
-        request_var=request_var,
-        request_vars=request_vars,
-        request_named_vars=unused,
-    )
+    return PVSProductionInvertersUpdater(MatchReads(responses))
 
 
 def test_probe_finds_inverters():
@@ -92,21 +85,12 @@ def test_update_without_serials_says_so(caplog):
 def test_meter_updater_ignores_short_var_names():
     from pypvs.updaters.meter import PVSProductionMetersUpdater
 
-    async def request_vars(match):
-        return {
-            "/sys/devices/meter/0": "x",
-            "/sys/devices/meter/0/sn": "M1",
-            "/sys/devices/meter/0/p3phsumKw": "1.5",
-        }
-
-    async def request_var(name):
-        raise AssertionError("not used")
-
-    updater = PVSProductionMetersUpdater(
-        request_var=request_var,
-        request_vars=request_vars,
-        request_named_vars=unused,
-    )
+    meter = {
+        "/sys/devices/meter/0": "x",
+        "/sys/devices/meter/0/sn": "M1",
+        "/sys/devices/meter/0/p3phsumKw": "1.5",
+    }
+    updater = PVSProductionMetersUpdater(MatchReads([meter]))
     out = PVSData()
     asyncio.run(updater.update(out))
     assert out.meters["M1"].power_3ph_kw == 1.5

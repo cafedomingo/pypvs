@@ -1,7 +1,6 @@
 import logging
 from abc import abstractmethod
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 from ..const import SupportedFeatures
 from ..models.pvs import PVSData
@@ -30,19 +29,22 @@ def group_device_vars(vars_dict: dict[str, Any]) -> list[dict[str, Any]]:
     return devices
 
 
+class Varserver(Protocol):
+    """The reads an updater makes; PVS implements them."""
+
+    async def getVarserverVar(self, varname: str) -> Any: ...
+
+    async def getVarserverVars(self, match: str) -> dict[str, Any]: ...
+
+    async def getVarserverVarsByName(self, names: list[str]) -> dict[str, Any]: ...
+
+
 class PVSUpdater:
     """Base class for PVS updaters."""
 
-    def __init__(
-        self,
-        request_var: Callable[[str], Awaitable[Any]],
-        request_vars: Callable[[str], Awaitable[dict[str, Any]]],
-        request_named_vars: Callable[[list[str]], Awaitable[dict[str, Any]]],
-    ) -> None:
+    def __init__(self, pvs: Varserver) -> None:
         """Initialize the PVS updater."""
-        self._request_var = request_var
-        self._request_vars = request_vars
-        self._request_named_vars = request_named_vars
+        self._pvs = pvs
         self._supported_features = SupportedFeatures(0)
         self._data_unavailable = False
 

@@ -36,11 +36,7 @@ async def main():
             logging.error(f"Cannot communicate with the PVS: {e}")
             return
 
-        inverter_updater = PVSProductionInvertersUpdater(
-            pvs.getVarserverVar,
-            pvs.getVarserverVars,
-            pvs.getVarserverVarsByName,
-        )
+        inverter_updater = PVSProductionInvertersUpdater(pvs)
 
         discovered_features = SupportedFeatures(0)
         inverter_is_there = await inverter_updater.probe(discovered_features)

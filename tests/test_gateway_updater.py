@@ -62,7 +62,7 @@ class FakePVS:
         self.calls = []
         self.batches = []
 
-    async def request_var(self, name):
+    async def getVarserverVar(self, name):
         self.calls.append(name)
         if name in self.failures:
             raise self.failures[name]
@@ -70,10 +70,10 @@ class FakePVS:
             raise BAD_REQUEST
         return self.values[name]
 
-    async def request_vars(self, match):
+    async def getVarserverVars(self, match):
         raise AssertionError("the gateway updater should not use match queries")
 
-    async def request_named_vars(self, names):
+    async def getVarserverVarsByName(self, names):
         self.batches.append(list(names))
         for name in names:
             if name in self.failures:
@@ -86,11 +86,7 @@ class FakePVS:
         return self.calls + [n for batch in self.batches for n in batch]
 
     def updater(self, ess=True):
-        updater = PVSGatewayUpdater(
-            request_var=self.request_var,
-            request_vars=self.request_vars,
-            request_named_vars=self.request_named_vars,
-        )
+        updater = PVSGatewayUpdater(self)
         features = SupportedFeatures.ESS if ess else SupportedFeatures(0)
         asyncio.run(updater.probe(features))
         return updater
@@ -343,12 +339,12 @@ def test_an_unreachable_pvs_fails_without_single_reads():
 
 def test_names_a_batch_leaves_out_are_read_alone():
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
-    full = pvs.request_named_vars
+    full = pvs.getVarserverVarsByName
 
     async def without_uptime(names):
         return {k: v for k, v in (await full(names)).items() if k != "/sys/info/uptime"}
 
-    pvs.request_named_vars = without_uptime
+    pvs.getVarserverVarsByName = without_uptime
     gw = run(pvs.updater())
     assert pvs.calls == ["/sys/info/uptime"]
     assert gw.uptime_s == 81436.77
@@ -389,7 +385,7 @@ def test_a_malformed_batch_falls_back_to_single_reads():
     async def malformed(names):
         raise PVSDataFormatError("no values list")
 
-    pvs.request_named_vars = malformed
+    pvs.getVarserverVarsByName = malformed
     gw = run(pvs.updater())
     assert gw.uptime_s == 81436.77
     assert gw.ess_control_mode == "SELF_CONSUMPTION"

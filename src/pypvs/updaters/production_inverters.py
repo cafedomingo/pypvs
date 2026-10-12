@@ -19,7 +19,7 @@ class PVSProductionInvertersUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            inverters_dict = await self._request_vars(Match.INVERTERS)
+            inverters_dict = await self._pvs.getVarserverVars(Match.INVERTERS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug(
                 "No inverters found on varserver filter %s: %s", Match.INVERTERS, e
@@ -41,7 +41,9 @@ class PVSProductionInvertersUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            inverters_dict: dict[str, Any] = await self._request_vars(Match.INVERTERS)
+            inverters_dict: dict[str, Any] = await self._pvs.getVarserverVars(
+                Match.INVERTERS
+            )
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("Inverter data unavailable: %s", e)
