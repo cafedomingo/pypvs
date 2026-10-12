@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import random
@@ -145,10 +146,8 @@ class PVSWebSocket:
 
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except (TimeoutError, asyncio.CancelledError):
-                pass
 
         self._task = None
         self._live_data = None
@@ -277,10 +276,8 @@ class PVSWebSocket:
                 finally:
                     if heartbeat_task and not heartbeat_task.done():
                         heartbeat_task.cancel()
-                        try:
+                        with contextlib.suppress(asyncio.CancelledError):
                             await heartbeat_task
-                        except asyncio.CancelledError:
-                            pass
 
                     self._live_data = None
                     self._set_state(ConnectionState.DISCONNECTED)

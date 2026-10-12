@@ -58,8 +58,7 @@ async def main():
     try:
         # Keep running indefinitely until stopped by Ctrl+C
         print("Listening for services... Press Ctrl+C to stop.")
-        while True:
-            await asyncio.sleep(1)
+        await asyncio.Event().wait()
     finally:
         zeroconf.close()
 

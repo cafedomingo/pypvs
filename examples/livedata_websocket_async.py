@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def on_live_data_update(changed_vars: set[str]) -> None:
     """Callback when live data is updated."""
-    _LOGGER.info(f"Data updated for: {changed_vars}")
+    _LOGGER.info("Data updated for: %s", changed_vars)
 
 
 async def main():
@@ -36,9 +36,9 @@ async def main():
             pvs_serial = pvs.serial_number
             pvs_password = pvs_serial[-5:]
             await pvs.setup(auth_password=pvs_password)
-            _LOGGER.info(f"Connected to PVS with serial: {pvs_serial}")
+            _LOGGER.info("Connected to PVS with serial: %s", pvs_serial)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
-            _LOGGER.error(f"Cannot communicate with the PVS: {e}")
+            _LOGGER.error("Cannot communicate with the PVS: %s", e)
             return
 
         # Create WebSocket client with automatic telemetry enable
@@ -49,7 +49,7 @@ async def main():
 
         # Connect (starts background task with auto-reconnect)
         await ws.connect()
-        _LOGGER.info(f"WebSocket connecting to {host}...")
+        _LOGGER.info("WebSocket connecting to %s...", host)
 
         try:
             # Print live data every 5 seconds

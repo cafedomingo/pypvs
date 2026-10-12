@@ -396,7 +396,7 @@ def test_str_var_defaults():
 
 
 @pytest.mark.parametrize(
-    "data, expected",
+    ("data", "expected"),
     [
         ({"msmtEps": "2024-09-30T16:15:00Z"}, 1727712900),
         ({}, 0),

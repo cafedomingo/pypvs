@@ -38,7 +38,7 @@ def make_pvs(monkeypatch, inverter_answers):
         return {}
 
     async def get_named(names):
-        return {name: "1" for name in names}
+        return dict.fromkeys(names, "1")
 
     pvs.getVarserverVar = get_var
     pvs.getVarserverVars = get_vars

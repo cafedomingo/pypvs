@@ -87,7 +87,7 @@ class PVS:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
             )
-            _LOGGER.debug(f"Received response: {response_data}")
+            _LOGGER.debug("Received response: %s", response_data)
             return response_data
         except PVSFCGIClientLoginError as err:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
@@ -105,7 +105,7 @@ class PVS:
 
         try:
             value = response_data["values"][0]["value"]
-            _LOGGER.debug(f"Received {varname}: {value}")
+            _LOGGER.debug("Received %s: %s", varname, value)
             return value
         except (KeyError, IndexError, TypeError) as err:
             raise PVSDataFormatError(
@@ -125,7 +125,7 @@ class PVS:
         values = _values(
             await self.getVarserver(Endpoint.VARS, params={"match": match})
         )
-        _LOGGER.debug(f"Received {len(values)} values: {values}")
+        _LOGGER.debug("Received %s values: %s", len(values), values)
         return values
 
     async def discover(self) -> None:

@@ -31,9 +31,9 @@ async def main():
             # The password is the last 5 characters of the PVS serial number
             pvs_password = pvs_serial[-5:]
             await pvs.setup(auth_password=pvs_password)
-            logging.info(f"Connected to PVS with serial: {pvs_serial}")
+            logging.info("Connected to PVS with serial: %s", pvs_serial)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
-            logging.error(f"Cannot communicate with the PVS: {e}")
+            logging.error("Cannot communicate with the PVS: %s", e)
             return
 
         ess_updater = PVSESSUpdater(pvs)
