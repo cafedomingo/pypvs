@@ -1,7 +1,8 @@
 import logging
 from typing import Any
 
-from ..const import VARS_MATCH_METERS, SupportedFeatures
+from ..api import Match
+from ..const import SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.meter import PVSMeter
 from ..models.pvs import PVSData
@@ -18,11 +19,9 @@ class PVSProductionMetersUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            await self._request_vars(VARS_MATCH_METERS)
+            await self._request_vars(Match.METERS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
-            _LOGGER.debug(
-                "No meters found on varserver filter %s: %s", VARS_MATCH_METERS, e
-            )
+            _LOGGER.debug("No meters found on varserver filter %s: %s", Match.METERS, e)
             return None
         self._supported_features |= SupportedFeatures.METERING
         return self._supported_features
@@ -30,7 +29,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            meters_dict: dict[str, Any] = await self._request_vars(VARS_MATCH_METERS)
+            meters_dict: dict[str, Any] = await self._request_vars(Match.METERS)
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("Meter data unavailable: %s", e)
@@ -49,7 +48,7 @@ class PVSProductionMetersUpdater(PVSUpdater):
             _LOGGER.error("Failed to process meter data: %s", e)
             return
 
-        pvs_data.raw[VARS_MATCH_METERS] = meters_data
+        pvs_data.raw[Match.METERS] = meters_data
         pvs_data.meters = {
             meter["sn"]: PVSMeter.from_varserver(meter) for meter in meters_data
         }

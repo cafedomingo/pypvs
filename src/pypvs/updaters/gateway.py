@@ -3,7 +3,8 @@ import time
 from http import HTTPStatus
 from typing import Any
 
-from ..const import VARS_MATCH_INFO, SupportedFeatures
+from ..api import Match, Variable
+from ..const import SupportedFeatures
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
 from ..models.gateway import CORE_VARS, PVSGateway, extra_vars
 from ..models.pvs import PVSData
@@ -84,11 +85,11 @@ class PVSGatewayUpdater(PVSUpdater):
             raise next(iter(errors.values()))
 
         if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
-            names = extra_vars(sys_info["/sys/info/model"], self._has_ess)
+            names = extra_vars(sys_info[Variable.MODEL], self._has_ess)
             await self._refresh_extras(now, names)
 
         sys_info.update(self._extras)
-        pvs_data.raw[VARS_MATCH_INFO] = sys_info
+        pvs_data.raw[Match.INFO] = sys_info
         pvs_data.gateway = PVSGateway.from_varserver(sys_info)
 
     async def _refresh_extras(self, now: float, names: tuple[str, ...]) -> None:

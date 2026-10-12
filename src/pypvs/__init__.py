@@ -13,17 +13,17 @@ from .pvs import PVS, register_updater
 from .pvs_websocket import ConnectionState, PVSWebSocket
 
 __all__ = (
-    "register_updater",
     "PVS",
-    "PVSError",
+    "ConnectionState",
+    "PVSAuthenticationError",
     "PVSCommunicationError",
     "PVSDataFormatError",
+    "PVSError",
     "PVSFirmwareCheckError",
-    "PVSAuthenticationError",
     "PVSInverter",
     "PVSLiveData",
     "PVSWebSocket",
-    "ConnectionState",
+    "register_updater",
 )
 
 try:

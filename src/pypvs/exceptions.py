@@ -31,9 +31,9 @@ class PVSDataFormatError(PVSError):
 
 
 ENDPOINT_PROBE_EXCEPTIONS = (
-    PVSDataFormatError,
-    PVSAuthenticationError,
-    PVSProbeFailed,
-    PVSCommunicationError,
     KeyError,
+    PVSAuthenticationError,
+    PVSCommunicationError,
+    PVSDataFormatError,
+    PVSProbeFailed,
 )

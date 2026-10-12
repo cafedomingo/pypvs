@@ -7,26 +7,28 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from ..api import Variable
+
 # Canonical field definitions for livedata.
 # Each tuple: (ws_field_name, var_path, attr_name, value_type)
 LIVEDATA_FIELD_DEFINITIONS: tuple[tuple[str, str, str, str], ...] = (
-    ("time", "/sys/livedata/time", "time", "timestamp"),
-    ("pv_p", "/sys/livedata/pv_p", "pv_p", "numeric"),
-    ("pv_en", "/sys/livedata/pv_en", "pv_en", "numeric"),
-    ("net_p", "/sys/livedata/net_p", "net_p", "numeric"),
-    ("net_en", "/sys/livedata/net_en", "net_en", "numeric"),
-    ("site_load_p", "/sys/livedata/site_load_p", "site_load_p", "numeric"),
-    ("site_load_en", "/sys/livedata/site_load_en", "site_load_en", "numeric"),
-    ("ess_en", "/sys/livedata/ess_en", "ess_en", "numeric"),
-    ("ess_p", "/sys/livedata/ess_p", "ess_p", "numeric"),
-    ("soc", "/sys/livedata/soc", "soc", "numeric"),
+    ("time", Variable.LIVEDATA_TIME, "time", "timestamp"),
+    ("pv_p", Variable.LIVEDATA_PV_P, "pv_p", "numeric"),
+    ("pv_en", Variable.LIVEDATA_PV_EN, "pv_en", "numeric"),
+    ("net_p", Variable.LIVEDATA_NET_P, "net_p", "numeric"),
+    ("net_en", Variable.LIVEDATA_NET_EN, "net_en", "numeric"),
+    ("site_load_p", Variable.LIVEDATA_SITE_LOAD_P, "site_load_p", "numeric"),
+    ("site_load_en", Variable.LIVEDATA_SITE_LOAD_EN, "site_load_en", "numeric"),
+    ("ess_en", Variable.LIVEDATA_ESS_EN, "ess_en", "numeric"),
+    ("ess_p", Variable.LIVEDATA_ESS_P, "ess_p", "numeric"),
+    ("soc", Variable.LIVEDATA_SOC, "soc", "numeric"),
     (
         "backupTimeRemaining",
-        "/sys/livedata/backupTimeRemaining",
+        Variable.LIVEDATA_BACKUP_TIME_REMAINING,
         "backup_time_remaining",
         "numeric",
     ),
-    ("midstate", "/sys/livedata/midstate", "midstate", "string"),
+    ("midstate", Variable.LIVEDATA_MIDSTATE, "midstate", "string"),
 )
 
 # Mapping from varserver path to attribute name (derived from field definitions)
@@ -49,7 +51,7 @@ class PVSLiveData:
         site_load_en: Site load energy in kWh
         ess_en: Battery energy in kWh
         ess_p: Battery power in kW (positive = discharging, negative = charging)
-        soc: Battery state of charge percentage
+        soc: Battery state of charge as a 0-1 ratio
         backup_time_remaining: Estimated backup time remaining in minutes
         midstate: MIDC transfer switch state
     """
@@ -92,20 +94,10 @@ class PVSLiveData:
             PVSLiveData instance with parsed values
         """
         return cls(
-            time=cls._parse_timestamp(data.get("/sys/livedata/time")),
-            pv_p=cls._parse_numeric(data.get("/sys/livedata/pv_p")),
-            pv_en=cls._parse_numeric(data.get("/sys/livedata/pv_en")),
-            net_p=cls._parse_numeric(data.get("/sys/livedata/net_p")),
-            net_en=cls._parse_numeric(data.get("/sys/livedata/net_en")),
-            site_load_p=cls._parse_numeric(data.get("/sys/livedata/site_load_p")),
-            site_load_en=cls._parse_numeric(data.get("/sys/livedata/site_load_en")),
-            ess_en=cls._parse_numeric(data.get("/sys/livedata/ess_en")),
-            ess_p=cls._parse_numeric(data.get("/sys/livedata/ess_p")),
-            soc=cls._parse_numeric(data.get("/sys/livedata/soc")),
-            backup_time_remaining=cls._parse_numeric(
-                data.get("/sys/livedata/backupTimeRemaining")
-            ),
-            midstate=cls._parse_string(data.get("/sys/livedata/midstate")),
+            **{
+                attr: getattr(cls, f"_parse_{value_type}")(data.get(var_path))
+                for _, var_path, attr, value_type in LIVEDATA_FIELD_DEFINITIONS
+            }
         )
 
     @staticmethod

@@ -17,15 +17,15 @@ from pypvs.models.pvs import PVSData
 from pypvs.updaters.gateway import PVSGatewayUpdater
 
 SYS_INFO = {
-    "/sys/info/sys_type": "Storage",
-    "/sys/info/model": "PVS6",
-    "/sys/info/hwrev": "6.02",
-    "/sys/info/sw_rev": "2025.06.06.61839",
-    "/sys/info/uptime": "81436.77",
-    "/sys/info/lmac": "02:aa:bb:cc:dd:01",
-    "/sys/info/ram_usage": "7",
-    "/sys/info/flash_usage": "73",
     "/sys/info/cpu_usage": "6",
+    "/sys/info/flash_usage": "73",
+    "/sys/info/hwrev": "6.02",
+    "/sys/info/lmac": "02:aa:bb:cc:dd:01",
+    "/sys/info/model": "PVS6",
+    "/sys/info/ram_usage": "7",
+    "/sys/info/sw_rev": "2025.06.06.61839",
+    "/sys/info/sys_type": "Storage",
+    "/sys/info/uptime": "81436.77",
     "/sys/pvs/flashwear_type_b": "0x01",
 }
 
@@ -34,17 +34,17 @@ EXTRAS = {
     "/ess/config/dcm/control_param/min_customer_soc": "0.20",
     "/ess/config/dcm/mode_param/control_mode": "SELF_CONSUMPTION",
     "/sys/info/active_interface": "wan0",
+    "/sys/info/boardtype": "A0K LIB 1.0 PSoC5",
+    "/sys/info/fwrev": "",
+    "/sys/pvs/usb_erase_count": "0",
     "/sys/toggle_cell/broadband_connected": "1",
     "/sys/toggle_cell/cell_connected": "0",
     "/sys/toggle_cell/low_data_mode": "0",
-    "/sys/pvs/usb_erase_count": "0",
-    "/sys/info/fwrev": "",
-    "/sys/info/boardtype": "A0K LIB 1.0 PSoC5",
 }
 NET = {
+    "/net/sta0/state": "ready",
     "/net/wan0/state": "online",
     "/net/wan1/state": "N/A",
-    "/net/sta0/state": "ready",
     "/net/wwan0/state": "N/A",
 }
 

@@ -1,7 +1,8 @@
 import logging
 from typing import Any
 
-from ..const import VARS_MATCH_TRANSFER_SWITCH, SupportedFeatures
+from ..api import Match
+from ..const import SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.pvs import PVSData
 from ..models.transfer_switch import PVSTransferSwitch
@@ -18,11 +19,11 @@ class PVSTransferSwitchUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            await self._request_vars(VARS_MATCH_TRANSFER_SWITCH)
+            await self._request_vars(Match.TRANSFER_SWITCH)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
             _LOGGER.debug(
                 "No transfer switches found on varserver filter %s: %s",
-                VARS_MATCH_TRANSFER_SWITCH,
+                Match.TRANSFER_SWITCH,
                 e,
             )
             return None
@@ -33,7 +34,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
         """Update the PVS for this updater."""
         try:
             transfer_switches_dict: dict[str, Any] = await self._request_vars(
-                VARS_MATCH_TRANSFER_SWITCH
+                Match.TRANSFER_SWITCH
             )
         except Exception as e:
             if not self._data_unavailable:
@@ -53,7 +54,7 @@ class PVSTransferSwitchUpdater(PVSUpdater):
             _LOGGER.error("Failed to process transfer switch data: %s", e)
             return
 
-        pvs_data.raw[VARS_MATCH_TRANSFER_SWITCH] = transfer_switches_data
+        pvs_data.raw[Match.TRANSFER_SWITCH] = transfer_switches_data
         pvs_data.transfer_switches = {
             switch["sn"]: PVSTransferSwitch.from_varserver(switch)
             for switch in transfer_switches_data

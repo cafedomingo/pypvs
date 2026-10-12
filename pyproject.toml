@@ -57,14 +57,15 @@ extend-exclude = ["src/pypvs/_version.py"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "B",   # flake8-bugbear
-    "UP",  # pyupgrade
-    "C90", # mccabe complexity
-    "N",   # pep8-naming
+    "B",      # flake8-bugbear
+    "C90",    # mccabe complexity
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "RUF022", # sorted __all__
+    "UP",     # pyupgrade
+    "W",      # pycodestyle warnings
 ]
 ignore = ["N818"]  # PVSProbeFailed is public
 

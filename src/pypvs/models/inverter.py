@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
-from .varserver_coerce import float_var, str_var
+from .varserver_coerce import float_var, report_time_var, str_var
 
 
 @dataclass(slots=True)
@@ -60,17 +59,10 @@ class PVSInverter:
         """Initialize from /sys/devices/inverter/*/* varserver variables
         packed in JSON to a PVSInverter instance."""
 
-        date_str = str_var(data, "msmtEps", "1970-01-01T00:00:00Z")
-        try:
-            dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-            last_report_date = int(dt.timestamp())
-        except Exception:
-            last_report_date = 0
-
         return cls(
             serial_number=str_var(data, "sn"),
             model=str_var(data, "prodMdlNm"),
-            last_report_date=last_report_date,
+            last_report_date=report_time_var(data),
             last_report_kw=float_var(data, "p3phsumKw"),
             last_report_voltage_v=float_var(data, "vln3phavgV"),
             last_report_current_a=float_var(data, "i3phsumA"),

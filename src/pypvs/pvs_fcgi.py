@@ -1,8 +1,13 @@
 import base64
 import json
 import logging
+from http import HTTPStatus
+
+from .api import Endpoint
 
 _LOGGER = logging.getLogger(__name__)
+
+_BODY_EXCERPT_CHARS = 200
 
 
 class PVSFCGIClientLoginError(Exception):
@@ -23,7 +28,7 @@ class PVSFCGIClient:
         self.auth_user = auth_user
         self.auth_password = auth_password
         self._pvs_url: str | None = None
-        self.login_endpoint = "/auth?login"
+        self.login_endpoint = Endpoint.AUTH_LOGIN
         self.cookies = None
 
     @property
@@ -60,11 +65,11 @@ class PVSFCGIClient:
         _LOGGER.debug("Logging in to %s", login_url)
         # TODO: Ignore certificate errors for now
         async with self.session.get(login_url, headers=headers, ssl=False) as response:
-            if response.status != 200:
+            if response.status != HTTPStatus.OK:
                 body = await response.text()
                 raise PVSFCGIClientLoginError(
                     f"Login failed with status code: {response.status}"
-                    f" and response: {body[:200]}"
+                    f" and response: {body[:_BODY_EXCERPT_CHARS]}"
                 )
 
             self.cookies = response.cookies
@@ -77,42 +82,22 @@ class PVSFCGIClient:
         ) as response:
             response_body = await response.text()
 
-            if response.status == 200:
+            if response.status == HTTPStatus.OK:
                 _LOGGER.debug("POST request successful!")
                 return json.loads(response_body)
-            elif response.status == 401:
-                # Session expired or invalid (the PVS answers 401, errorcode
-                # 0x0012) — caller should re-authenticate
-                _LOGGER.debug(
-                    "PVS returned HTTP %s for %s — body: %s",
-                    response.status,
-                    url,
-                    response_body[:500],
-                )
-                raise PVSFCGIClientLoginError(
-                    f"HTTP {response.status}: {response_body[:200]}"
-                )
-            else:
-                # 400 (bad request) or a server error — not an auth issue,
-                # don't retry login
-                _LOGGER.debug(
-                    "PVS returned HTTP %s for %s — body: %s",
-                    response.status,
-                    url,
-                    response_body[:500],
-                )
-                raise PVSFCGIClientPostError(
-                    f"HTTP {response.status}: {response_body[:200]}",
-                    status=response.status,
-                )
+            message = f"HTTP {response.status}: {response_body[:_BODY_EXCERPT_CHARS]}"
+            _LOGGER.debug("PVS returned %s for %s", message, url)
+            # an expired session is 401; only that is worth logging in again for
+            if response.status == HTTPStatus.UNAUTHORIZED:
+                raise PVSFCGIClientLoginError(message)
+            raise PVSFCGIClientPostError(message, status=response.status)
 
     async def execute_post_request(self, endpoint, params=None):
         """
         Execute a POST request using the stored cookies.
         This function uses lazy authentication.
-        If the server responds with a 401 (Unauthorized) or
-        400 (Bad Request) for missing session id (i.e. the cookie)
-        the client will try getting a new session id and retry the request.
+        If the server responds with a 401 (Unauthorized), the client logs in
+        again and retries the request once.
 
         Args:
             - endpoint (str): The relative URL for the POST request.

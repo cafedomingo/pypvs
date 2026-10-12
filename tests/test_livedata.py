@@ -8,11 +8,11 @@ from pypvs.models.livedata import PVSLiveData
 
 # A /sys/livedata answer as the PVS6 actually returns it: every value a string.
 LIVE_STRINGS = {
-    "/sys/livedata/time": "1791612709",
-    "/sys/livedata/pv_p": "3.200000",
-    "/sys/livedata/net_p": "-1.100000",
-    "/sys/livedata/soc": "0.200000",
     "/sys/livedata/midstate": "2",
+    "/sys/livedata/net_p": "-1.100000",
+    "/sys/livedata/pv_p": "3.200000",
+    "/sys/livedata/soc": "0.200000",
+    "/sys/livedata/time": "1791612709",
 }
 
 

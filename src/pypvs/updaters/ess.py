@@ -1,7 +1,8 @@
 import logging
 from typing import Any
 
-from ..const import VARS_MATCH_ESS, SupportedFeatures
+from ..api import Match
+from ..const import SupportedFeatures
 from ..exceptions import ENDPOINT_PROBE_EXCEPTIONS
 from ..models.ess import PVSESS
 from ..models.pvs import PVSData
@@ -18,9 +19,9 @@ class PVSESSUpdater(PVSUpdater):
     ) -> SupportedFeatures | None:
         """Probe the PVS for this updater and return SupportedFeatures."""
         try:
-            await self._request_vars(VARS_MATCH_ESS)
+            await self._request_vars(Match.ESS)
         except ENDPOINT_PROBE_EXCEPTIONS as e:
-            _LOGGER.debug("No ESS found on varserver filter %s: %s", VARS_MATCH_ESS, e)
+            _LOGGER.debug("No ESS found on varserver filter %s: %s", Match.ESS, e)
             return None
         self._supported_features |= SupportedFeatures.ESS
         return self._supported_features
@@ -28,7 +29,7 @@ class PVSESSUpdater(PVSUpdater):
     async def update(self, pvs_data: PVSData) -> None:
         """Update the PVS for this updater."""
         try:
-            ess_dict: dict[str, Any] = await self._request_vars(VARS_MATCH_ESS)
+            ess_dict: dict[str, Any] = await self._request_vars(Match.ESS)
         except Exception as e:
             if not self._data_unavailable:
                 _LOGGER.warning("ESS data unavailable: %s", e)
@@ -47,5 +48,5 @@ class PVSESSUpdater(PVSUpdater):
             _LOGGER.error("Failed to process ESS data: %s", e)
             return
 
-        pvs_data.raw[VARS_MATCH_ESS] = ess_data
+        pvs_data.raw[Match.ESS] = ess_data
         pvs_data.ess = {ess["sn"]: PVSESS.from_varserver(ess) for ess in ess_data}
