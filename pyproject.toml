@@ -64,6 +64,17 @@ select = [
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
     "C90", # mccabe complexity
+    "N",   # pep8-naming
+]
+ignore = ["N818"]  # PVSProbeFailed is public
+
+[tool.ruff.lint.pep8-naming]
+# public; the Home Assistant integration calls getVarserverVar
+extend-ignore-names = [
+    "getVarserver",
+    "getVarserverVar",
+    "getVarserverVars",
+    "getVarserverVarsByName",
 ]
 
 [tool.ruff.lint.mccabe]
