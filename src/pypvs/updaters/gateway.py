@@ -9,7 +9,7 @@ from ..api import Match, SysType, Variable
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
 from ..models.gateway import CORE_VARS, PVSGateway, extra_vars
 from ..models.pvs import PVSData
-from ..models.varserver_coerce import str_var
+from ..models.values import get_str
 from .base import Varserver
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ class PVSGatewayUpdater:
             raise next(iter(errors.values()))
 
         # sys_type reads Unknown for a while after a reboot
-        storage = str_var(sys_info, Variable.SYS_TYPE).strip() == SysType.STORAGE
+        storage = get_str(sys_info, Variable.SYS_TYPE) == SysType.STORAGE
         if (
             self._extras_at is None
             or storage != self._storage

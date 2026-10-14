@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from ..api import Match
-from .varserver_coerce import float_var, report_time_var, str_var
+from .values import get_float, get_report_time, get_str
 
 
 @dataclass(slots=True)
@@ -31,15 +31,15 @@ class PVSTransferSwitch:
     def from_varserver(cls, data: dict[str, Any]) -> PVSTransferSwitch:
         """Initialize from one device's variables, as group_device_vars packs them."""
         return cls(
-            serial_number=str_var(data, "sn"),
-            model=str_var(data, "prodMdlNm"),
-            last_report_date=report_time_var(data),
-            mid_state=str_var(data, "midStEnum"),
-            pvd1_state=str_var(data, "pvd1StEnum"),
-            temperature_c=float_var(data, "tDegc"),
-            v1n_grid_v=float_var(data, "v1nGridV"),
-            v1n_v=float_var(data, "v1nV"),
-            v2n_grid_v=float_var(data, "v2nGridV"),
-            v2n_v=float_var(data, "v2nV"),
-            v_supply_v=float_var(data, "vSpplyV"),
+            serial_number=get_str(data, "sn"),
+            model=get_str(data, "prodMdlNm"),
+            last_report_date=get_report_time(data),
+            mid_state=get_str(data, "midStEnum"),
+            pvd1_state=get_str(data, "pvd1StEnum"),
+            temperature_c=get_float(data, "tDegc"),
+            v1n_grid_v=get_float(data, "v1nGridV"),
+            v1n_v=get_float(data, "v1nV"),
+            v2n_grid_v=get_float(data, "v2nGridV"),
+            v2n_v=get_float(data, "v2nV"),
+            v_supply_v=get_float(data, "vSpplyV"),
         )

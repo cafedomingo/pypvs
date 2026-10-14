@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..api import INTERFACES_BY_MODEL, PVS6_ONLY_VARIABLES, Model, Variable, net_state
-from .varserver_coerce import float_var, int_var, str_var
+from .values import get_count, get_flag, get_float, get_int, get_str, get_text
 
 #: read every poll; all required
 CORE_VARS = (
@@ -56,38 +55,6 @@ def extra_vars(model: str, has_ess: bool) -> tuple[str, ...]:
     )
 
 
-# "TBD" is varserver's default for a string variable nothing has set
-_PLACEHOLDERS = {"", "TBD"}
-
-
-def _text(data: dict[str, Any], key: str) -> str | None:
-    value = str_var(data, key, None)
-    if value is None:
-        return None
-    value = value.strip()
-    return None if value in _PLACEHOLDERS else value
-
-
-def _flag(data: dict[str, Any], key: str) -> bool | None:
-    value = float_var(data, key)
-    return None if value is None else value != 0
-
-
-def _whole(data: dict[str, Any], key: str) -> int | None:
-    value = float_var(data, key)
-    return None if value is None or not value.is_integer() else int(value)
-
-
-def _count(data: dict[str, Any], key: str) -> int | None:
-    """An unsigned counter, decimal or 0x-prefixed hex."""
-    value = _text(data, key)
-    if value is None:
-        return None
-    if re.fullmatch(r"0[xX][0-9a-fA-F]+", value):
-        return int(value, 16)
-    return int(value) if re.fullmatch(r"[0-9]+", value) else None
-
-
 @dataclass(slots=True)
 class PVSGateway:
     """Model for the PVS itself as a gateway."""
@@ -121,43 +88,36 @@ class PVSGateway:
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSGateway:
         """Initialize from /sys/info and the extra varserver variables."""
-        pvs_model = str_var(data, Variable.MODEL).strip()
-        hw_rev = str_var(data, Variable.HWREV).strip()
+        pvs_model = get_str(data, Variable.MODEL)
+        hw_rev = get_str(data, Variable.HWREV)
 
-        # flashwear_type_b is reported as a hex string (e.g. "0x02")
-        # The decimal value is multiplied by 10 to get a percentage.
-        # Only available on PVS6; returns None when absent.
-        raw_flashwear = str_var(data, Variable.FLASHWEAR, None)
-        flashwear: int | None = None
-        if raw_flashwear is not None:
-            try:
-                flashwear = min(int(raw_flashwear, 16) * 10, 100)
-            except (ValueError, TypeError):
-                flashwear = None
+        # tenths in hex, e.g. "0x02" is 20%; only on the PVS6
+        flashwear = get_count(data, Variable.FLASHWEAR)
+        flashwear_percent = None if flashwear is None else min(flashwear * 10, 100)
 
         return cls(
-            model=str_var(data, Variable.SYS_TYPE).strip(),
+            model=get_str(data, Variable.SYS_TYPE),
             pvs_type=pvs_model,
             hardware_version=f"{pvs_model} {hw_rev}",
-            software_version=str_var(data, Variable.SW_REV),
-            uptime_s=float_var(data, Variable.UPTIME),
-            mac=str_var(data, Variable.LMAC),
-            ram_usage_percent=int_var(data, Variable.RAM_USAGE),
-            flash_usage_percent=int_var(data, Variable.FLASH_USAGE),
-            cpu_usage_percent=int_var(data, Variable.CPU_USAGE),
-            flashwear_type_b_percent=flashwear,
-            firmware_revision=_text(data, Variable.FWREV),
-            board_type=_text(data, Variable.BOARDTYPE),
-            usb_erase_count=_count(data, Variable.USB_ERASE_COUNT),
-            active_interface=_text(data, Variable.ACTIVE_INTERFACE),
+            software_version=get_str(data, Variable.SW_REV),
+            uptime_s=get_float(data, Variable.UPTIME),
+            mac=get_str(data, Variable.LMAC),
+            ram_usage_percent=get_int(data, Variable.RAM_USAGE),
+            flash_usage_percent=get_int(data, Variable.FLASH_USAGE),
+            cpu_usage_percent=get_int(data, Variable.CPU_USAGE),
+            flashwear_type_b_percent=flashwear_percent,
+            firmware_revision=get_text(data, Variable.FWREV),
+            board_type=get_text(data, Variable.BOARDTYPE),
+            usb_erase_count=get_count(data, Variable.USB_ERASE_COUNT),
+            active_interface=get_text(data, Variable.ACTIVE_INTERFACE),
             interface_states={
                 name: state
                 for name in _interfaces(pvs_model)
-                if (state := _text(data, net_state(name))) is not None
+                if (state := get_text(data, net_state(name))) is not None
             },
-            broadband_connected=_flag(data, Variable.BROADBAND_CONNECTED),
-            cell_connected=_flag(data, Variable.CELL_CONNECTED),
-            low_data_mode=_whole(data, Variable.LOW_DATA_MODE),
-            ess_reserve_soc=float_var(data, Variable.ESS_RESERVE_SOC),
-            ess_control_mode=_text(data, Variable.ESS_CONTROL_MODE),
+            broadband_connected=get_flag(data, Variable.BROADBAND_CONNECTED),
+            cell_connected=get_flag(data, Variable.CELL_CONNECTED),
+            low_data_mode=get_int(data, Variable.LOW_DATA_MODE),
+            ess_reserve_soc=get_float(data, Variable.ESS_RESERVE_SOC),
+            ess_control_mode=get_text(data, Variable.ESS_CONTROL_MODE),
         )

@@ -2,81 +2,28 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from ..api import Variable
+from .values import get_float, get_text, get_unix_time
 
-
-def _parse_numeric(value: Any) -> float | None:
-    """Parse a numeric value from varserver response."""
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            number = float(value)
-        except OverflowError:  # an int too large for a float
-            return None
-    elif isinstance(value, str):
-        try:
-            number = float(value)
-        except ValueError:
-            return None
-    else:
-        return None
-    # nan/inf are "no reading"; NaN would also never compare equal
-    return number if math.isfinite(number) else None
-
-
-def _parse_string(value: Any) -> str | None:
-    """Parse a string value; the wire may carry it as a number."""
-    return None if value is None else str(value)
-
-
-def _parse_timestamp(value: Any) -> datetime | None:
-    """Parse a timestamp value from varserver response.
-
-    Handles both Unix seconds and milliseconds formats.
-    """
-    if value is None:
-        return None
-    try:
-        timestamp: float = int(value)
-        current_time = datetime.now(UTC).timestamp()
-
-        # Detect milliseconds vs seconds
-        if timestamp > current_time + (365 * 24 * 3600):
-            timestamp = timestamp / 1000
-
-        # Validate
-        if timestamp < 0 or timestamp > current_time + (365 * 24 * 3600):
-            return None
-
-        return datetime.fromtimestamp(timestamp, tz=UTC)
-    except (ValueError, TypeError, OSError, OverflowError):
-        return None
-
-
-#: attribute -> its /sys/livedata variable and the parser for its value
-LIVEDATA_FIELDS: dict[str, tuple[Variable, Callable[[Any], Any]]] = {
-    "time": (Variable.LIVEDATA_TIME, _parse_timestamp),
-    "pv_p": (Variable.LIVEDATA_PV_P, _parse_numeric),
-    "pv_en": (Variable.LIVEDATA_PV_EN, _parse_numeric),
-    "net_p": (Variable.LIVEDATA_NET_P, _parse_numeric),
-    "net_en": (Variable.LIVEDATA_NET_EN, _parse_numeric),
-    "site_load_p": (Variable.LIVEDATA_SITE_LOAD_P, _parse_numeric),
-    "site_load_en": (Variable.LIVEDATA_SITE_LOAD_EN, _parse_numeric),
-    "ess_en": (Variable.LIVEDATA_ESS_EN, _parse_numeric),
-    "ess_p": (Variable.LIVEDATA_ESS_P, _parse_numeric),
-    "soc": (Variable.LIVEDATA_SOC, _parse_numeric),
-    "backup_time_remaining": (
-        Variable.LIVEDATA_BACKUP_TIME_REMAINING,
-        _parse_numeric,
-    ),
-    "midstate": (Variable.LIVEDATA_MIDSTATE, _parse_string),
+#: attribute -> its /sys/livedata variable and the function that reads it
+LIVEDATA_FIELDS: dict[str, tuple[Variable, Callable[[dict[str, Any], str], Any]]] = {
+    "time": (Variable.LIVEDATA_TIME, get_unix_time),
+    "pv_p": (Variable.LIVEDATA_PV_P, get_float),
+    "pv_en": (Variable.LIVEDATA_PV_EN, get_float),
+    "net_p": (Variable.LIVEDATA_NET_P, get_float),
+    "net_en": (Variable.LIVEDATA_NET_EN, get_float),
+    "site_load_p": (Variable.LIVEDATA_SITE_LOAD_P, get_float),
+    "site_load_en": (Variable.LIVEDATA_SITE_LOAD_EN, get_float),
+    "ess_en": (Variable.LIVEDATA_ESS_EN, get_float),
+    "ess_p": (Variable.LIVEDATA_ESS_P, get_float),
+    "soc": (Variable.LIVEDATA_SOC, get_float),
+    "backup_time_remaining": (Variable.LIVEDATA_BACKUP_TIME_REMAINING, get_float),
+    "midstate": (Variable.LIVEDATA_MIDSTATE, get_text),
 }
 
 _VAR_PATH_TO_ATTR: dict[str, str] = {
@@ -142,7 +89,7 @@ class PVSLiveData:
         """
         return cls(
             **{
-                attr: parse(data.get(var_path))
-                for attr, (var_path, parse) in LIVEDATA_FIELDS.items()
+                attr: get(data, var_path)
+                for attr, (var_path, get) in LIVEDATA_FIELDS.items()
             }
         )

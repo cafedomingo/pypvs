@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from ..api import Match
-from .varserver_coerce import float_var, report_time_var, str_var
+from .values import get_float, get_report_time, get_str
 
 
 @dataclass(slots=True)
@@ -42,26 +42,26 @@ class PVSMeter:
     def from_varserver(cls, data: dict[str, Any]) -> PVSMeter:
         """Initialize from one device's variables, as group_device_vars packs them."""
         return cls(
-            serial_number=str_var(data, "sn"),
-            model=str_var(data, "prodMdlNm"),
-            last_report_date=report_time_var(data),
-            power_3ph_kw=float_var(data, "p3phsumKw"),
-            voltage_3ph_v=float_var(data, "vln3phavgV"),
-            current_3ph_a=float_var(data, "i3phsumA"),
-            freq_hz=float_var(data, "freqHz"),
-            lte_3ph_kwh=float_var(data, "ltea3phsumKwh"),
-            ct_scale_factor=float_var(data, "ctSclFctr"),
-            i1_a=float_var(data, "i1A"),
-            i2_a=float_var(data, "i2A"),
-            neg_lte_kwh=float_var(data, "negLtea3phsumKwh"),
-            net_lte_kwh=float_var(data, "netLtea3phsumKwh"),
-            p1_kw=float_var(data, "p1Kw"),
-            p2_kw=float_var(data, "p2Kw"),
-            pos_lte_kwh=float_var(data, "posLtea3phsumKwh"),
-            q3phsum_kvar=float_var(data, "q3phsumKvar"),
-            s3phsum_kva=float_var(data, "s3phsumKva"),
-            tot_pf_ratio=float_var(data, "totPfRto"),
-            v12_v=float_var(data, "v12V"),
-            v1n_v=float_var(data, "v1nV"),
-            v2n_v=float_var(data, "v2nV"),
+            serial_number=get_str(data, "sn"),
+            model=get_str(data, "prodMdlNm"),
+            last_report_date=get_report_time(data),
+            power_3ph_kw=get_float(data, "p3phsumKw"),
+            voltage_3ph_v=get_float(data, "vln3phavgV"),
+            current_3ph_a=get_float(data, "i3phsumA"),
+            freq_hz=get_float(data, "freqHz"),
+            lte_3ph_kwh=get_float(data, "ltea3phsumKwh"),
+            ct_scale_factor=get_float(data, "ctSclFctr"),
+            i1_a=get_float(data, "i1A"),
+            i2_a=get_float(data, "i2A"),
+            neg_lte_kwh=get_float(data, "negLtea3phsumKwh"),
+            net_lte_kwh=get_float(data, "netLtea3phsumKwh"),
+            p1_kw=get_float(data, "p1Kw"),
+            p2_kw=get_float(data, "p2Kw"),
+            pos_lte_kwh=get_float(data, "posLtea3phsumKwh"),
+            q3phsum_kvar=get_float(data, "q3phsumKvar"),
+            s3phsum_kva=get_float(data, "s3phsumKva"),
+            tot_pf_ratio=get_float(data, "totPfRto"),
+            v12_v=get_float(data, "v12V"),
+            v1n_v=get_float(data, "v1nV"),
+            v2n_v=get_float(data, "v2nV"),
         )
