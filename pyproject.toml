@@ -90,7 +90,7 @@ extend-ignore-names = [
 ]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 39  # carried over from .flake8
+max-complexity = 10
 
 [tool.ruff.lint.isort]
 known-first-party = ["pypvs"]
@@ -98,5 +98,5 @@ known-first-party = ["pypvs"]
 [tool.mypy]
 python_version = "3.11"
 files = ["src/pypvs"]
-check_untyped_defs = true
+disallow_untyped_defs = true
 warn_unused_ignores = true

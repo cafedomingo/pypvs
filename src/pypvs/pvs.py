@@ -35,7 +35,13 @@ def _values(response_data: Any) -> dict[str, Any]:
 
 
 class PVS:
-    def __init__(self, session, host=None, user="ssm_owner", password=None):
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        host: str | None = None,
+        user: str = "ssm_owner",
+        password: str | None = None,
+    ) -> None:
         self._host: str | None = None
         self._firmware = PVSFirmware(self.getVarserverVar)
         self.data: PVSData | None = None
@@ -53,7 +59,9 @@ class PVS:
     def update_clients(self) -> None:
         self.fcgi_client.pvs_url = f"https://{self.host}" if self.host else None
 
-    async def getVarserver(self, endpoint, params=None):
+    async def getVarserver(
+        self, endpoint: str, params: dict[str, str] | None = None
+    ) -> Any:
         try:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
@@ -136,7 +144,7 @@ class PVS:
         return self._host
 
     @host.setter
-    def host(self, value: str | None):
+    def host(self, value: str | None) -> None:
         self._host = value
         self.update_clients()
 
