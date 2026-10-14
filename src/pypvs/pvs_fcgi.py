@@ -1,7 +1,13 @@
+"""HTTP client for the PVS local API, logging in as needed."""
+
 import base64
 import json
 import logging
 from http import HTTPStatus
+from http.cookies import SimpleCookie
+from typing import Any
+
+import aiohttp
 
 from .api import Endpoint
 
@@ -11,36 +17,45 @@ _BODY_EXCERPT_CHARS = 200
 
 
 class PVSFCGIClientLoginError(Exception):
-    """Exception raised when login to the PVS fails"""
+    """Exception raised when login to the PVS fails."""
 
 
 class PVSFCGIClientPostError(Exception):
-    """Exception raised when POST request to the PVS fails"""
+    """Exception raised when POST request to the PVS fails."""
 
-    def __init__(self, message, status=None):
+    def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
 
 
 class PVSFCGIClient:
-    def __init__(self, session, auth_user=None, auth_password=None):
+    """Posts to the PVS local API with a session from basic auth."""
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        auth_user: str | None = None,
+        auth_password: str | None = None,
+    ) -> None:
         self.session = session
         self.auth_user = auth_user
         self.auth_password = auth_password
         self._pvs_url: str | None = None
         self.login_endpoint = Endpoint.AUTH_LOGIN
-        self.cookies = None
+        self.cookies: SimpleCookie | None = None
 
     @property
     def pvs_url(self) -> str | None:
+        """The PVS base URL, e.g. https://192.168.1.10; None until set."""
         return self._pvs_url
 
     @pvs_url.setter
-    def pvs_url(self, value: str | None):
+    def pvs_url(self, value: str | None) -> None:
         self._pvs_url = value
         _LOGGER.debug("PVS URL set to %s", self._pvs_url)
 
-    async def login_basic(self):
+    async def login_basic(self) -> None:
+        """Log in with the user and password."""
         if not self.auth_user:
             raise PVSFCGIClientLoginError("Auth user must be set before logging in.")
 
@@ -51,12 +66,8 @@ class PVSFCGIClient:
         headers = {"Authorization": f"basic {auth_token}"}
         await self.login(headers=headers)
 
-    async def login(self, headers=None):
-        """
-        Log in to the server to start a session.
-        Store the cookies for subsequent requests.
-        """
-
+    async def login(self, headers: dict[str, str] | None = None) -> None:
+        """Log in to start a session; its cookies are kept for later requests."""
         if not self._pvs_url:
             raise PVSFCGIClientLoginError("PVS URL must be set before logging in.")
 
@@ -75,7 +86,7 @@ class PVSFCGIClient:
             self.cookies = response.cookies
             _LOGGER.info("Login successful")
 
-    async def _post_internal(self, url, payload_str):
+    async def _post_internal(self, url: str, payload_str: str) -> Any:
         # TODO: Ignore certificate errors for now
         async with self.session.post(
             url, cookies=self.cookies, data=payload_str, ssl=False
@@ -92,19 +103,19 @@ class PVSFCGIClient:
                 raise PVSFCGIClientLoginError(message)
             raise PVSFCGIClientPostError(message, status=response.status)
 
-    async def execute_post_request(self, endpoint, params=None):
-        """
-        Execute a POST request using the stored cookies.
-        This function uses lazy authentication.
-        If the server responds with a 401 (Unauthorized), the client logs in
-        again and retries the request once.
+    async def execute_post_request(
+        self, endpoint: str, params: dict[str, str] | None = None
+    ) -> Any:
+        """POST to an endpoint with the session cookies, logging in as needed.
+
+        If the PVS answers 401, log in again and retry once.
 
         Args:
-            - endpoint (str): The relative URL for the POST request.
-            - params (dict): Optional query parameters for the POST request.
+            endpoint: The path, relative to the PVS URL.
+            params: Form parameters, sent without URL encoding.
 
         Returns:
-            - Response data in JSON format if successful.
+            The decoded JSON response.
         """
         if not self._pvs_url:
             raise PVSFCGIClientPostError(

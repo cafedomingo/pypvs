@@ -7,8 +7,10 @@ from .api import Variable
 
 
 class PVSFirmware:
-    """The PVS serial number (its last 5 characters are the default password)
-    and LAN MAC address."""
+    """The PVS serial number and LAN MAC address.
+
+    The last 5 characters of the serial number are the default password.
+    """
 
     def __init__(
         self,
@@ -25,8 +27,10 @@ class PVSFirmware:
 
     @property
     def serial(self) -> str | None:
+        """The serial number; None until setup()."""
         return self._serial_number
 
     @property
     def lmac(self) -> str | None:
+        """The LAN MAC address; None until setup()."""
         return self._lmac

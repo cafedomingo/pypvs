@@ -1,3 +1,5 @@
+"""Reads the PVS itself as a gateway."""
+
 import logging
 import time
 from http import HTTPStatus
@@ -20,7 +22,7 @@ EMPTY_REFRESHES_BEFORE_DROP = 3
 
 
 class PVSGatewayUpdater:
-    """Class to handle updates for the PVS gateway."""
+    """Reads the PVS gateway variables, refreshing the extras every few minutes."""
 
     def __init__(self, pvs: Varserver) -> None:
         self._pvs = pvs
@@ -33,8 +35,11 @@ class PVSGatewayUpdater:
     async def _read(
         self, names: tuple[str, ...]
     ) -> tuple[dict[str, Any], dict[str, PVSError]]:
-        """The PVS rejects a whole batch if any name is unknown, so fall back
-        to single reads. Unreachable or login failures raise."""
+        """Read names in one request, falling back to one at a time.
+
+        The PVS rejects a whole batch if any name is unknown. Unreachable or
+        login failures raise.
+        """
         batch: dict[str, Any] = {}
         batch_error: PVSError | None = None
         try:
@@ -67,7 +72,7 @@ class PVSGatewayUpdater:
         return values, errors
 
     async def update(self, pvs_data: PVSData) -> None:
-        """Update the PVS for this updater."""
+        """Read the gateway into pvs_data.gateway."""
         now = time.monotonic()
         sys_info, errors = await self._read(CORE_VARS)
         if errors:  # every core variable is required

@@ -29,10 +29,7 @@ class PVSTransferSwitch:
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSTransferSwitch:
-        """
-        Initialize from /sys/devices/transfer_switch/*/* varserver variables packed
-        in JSON.
-        """
+        """Initialize from one device's variables, as group_device_vars packs them."""
         return cls(
             serial_number=str_var(data, "sn"),
             model=str_var(data, "prodMdlNm"),

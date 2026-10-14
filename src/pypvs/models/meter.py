@@ -40,8 +40,7 @@ class PVSMeter:
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSMeter:
-        """Initialize from /sys/devices/meter/*/* varserver variables packed in JSON."""
-
+        """Initialize from one device's variables, as group_device_vars packs them."""
         return cls(
             serial_number=str_var(data, "sn"),
             model=str_var(data, "prodMdlNm"),

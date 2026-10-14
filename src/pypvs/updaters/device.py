@@ -1,3 +1,5 @@
+"""Reads every device of one kind."""
+
 import logging
 from typing import Any, Generic, TypeVar
 
@@ -13,10 +15,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def group_device_vars(vars_dict: dict[str, Any]) -> list[dict[str, Any]]:
-    """Pack /sys/devices/{kind}/{i}/{param} vars into one dict per device,
-    ordered by index. Devices without a serial number are dropped.
+    """Pack /sys/devices/{kind}/{i}/{param} vars into one dict per device.
 
-    Raises ValueError if an index is not an integer.
+    Ordered by index; devices without a serial number are dropped.
+
+    Raises:
+        ValueError: If an index is not an integer.
     """
     grouped: dict[int, dict[str, Any]] = {}
     for key, val in vars_dict.items():
@@ -45,6 +49,11 @@ class PVSDeviceUpdater(Generic[M]):
         self._unavailable = False
 
     async def update(self, pvs_data: PVSData) -> dict[str, M]:
+        """Read the devices and keep their raw variables in pvs_data.raw.
+
+        Returns:
+            The devices by serial number; empty if none could be read.
+        """
         match = self._model.MATCH
         try:
             devices = group_device_vars(await self._pvs.getVarserverVars(match))

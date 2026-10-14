@@ -1,4 +1,4 @@
-"""Model for an PVS."""
+"""Model for one poll of the PVS."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -12,7 +12,7 @@ from .transfer_switch import PVSTransferSwitch
 
 @dataclass(slots=True)
 class PVSData:
-    """Model for a PVS6."""
+    """Everything one poll read from the PVS and its devices."""
 
     gateway: PVSGateway | None = None
 

@@ -11,6 +11,7 @@ import os
 import aiohttp
 
 from pypvs.exceptions import PVSError
+from pypvs.models.livedata import PVSLiveData
 from pypvs.pvs import PVS
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,29 @@ _LOGGER = logging.getLogger(__name__)
 def on_live_data_update(changed_vars: set[str]) -> None:
     """Callback when live data is updated."""
     _LOGGER.info("Data updated for: %s", changed_vars)
+
+
+def print_live_data(live_data: PVSLiveData) -> None:
+    print("\n" + "=" * 50)
+    print("Live Data:")
+    print(f"  Timestamp:        {live_data.time}")
+    print(f"  PV Power:         {live_data.pv_p} kW")
+    print(f"  PV Energy:        {live_data.pv_en} kWh")
+    print(f"  Net Power:        {live_data.net_p} kW")
+    print(f"  Net Energy:       {live_data.net_en} kWh")
+    print(f"  Site Load Power:  {live_data.site_load_p} kW")
+    print(f"  Site Load Energy: {live_data.site_load_en} kWh")
+    if live_data.ess_p is not None:
+        print(f"  ESS Power:        {live_data.ess_p} kW")
+    if live_data.ess_en is not None:
+        print(f"  ESS Energy:       {live_data.ess_en} kWh")
+    if live_data.soc is not None:
+        print(f"  Battery SOC:      {live_data.soc:.0%}")
+    if live_data.backup_time_remaining is not None:
+        print(f"  Backup Time:      {live_data.backup_time_remaining} min")
+    if live_data.midstate is not None:
+        print(f"  MIDC State:       {live_data.midstate}")
+    print("=" * 50)
 
 
 async def main():
@@ -61,26 +85,7 @@ async def main():
                     _LOGGER.info("Waiting for connection...")
                     continue
 
-                print("\n" + "=" * 50)
-                print("Live Data:")
-                print(f"  Timestamp:        {live_data.time}")
-                print(f"  PV Power:         {live_data.pv_p} kW")
-                print(f"  PV Energy:        {live_data.pv_en} kWh")
-                print(f"  Net Power:        {live_data.net_p} kW")
-                print(f"  Net Energy:       {live_data.net_en} kWh")
-                print(f"  Site Load Power:  {live_data.site_load_p} kW")
-                print(f"  Site Load Energy: {live_data.site_load_en} kWh")
-                if live_data.ess_p is not None:
-                    print(f"  ESS Power:        {live_data.ess_p} kW")
-                if live_data.ess_en is not None:
-                    print(f"  ESS Energy:       {live_data.ess_en} kWh")
-                if live_data.soc is not None:
-                    print(f"  Battery SOC:      {live_data.soc:.0%}")
-                if live_data.backup_time_remaining is not None:
-                    print(f"  Backup Time:      {live_data.backup_time_remaining} min")
-                if live_data.midstate is not None:
-                    print(f"  MIDC State:       {live_data.midstate}")
-                print("=" * 50)
+                print_live_data(live_data)
 
         except asyncio.CancelledError:
             pass
