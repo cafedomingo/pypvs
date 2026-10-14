@@ -64,6 +64,7 @@ select = [
     "B",     # flake8-bugbear
     "C4",    # flake8-comprehensions
     "C90",   # mccabe complexity
+    "D",     # pydocstyle
     "E",     # pycodestyle errors
     "F",     # pyflakes
     "FURB",  # refurb
@@ -79,6 +80,17 @@ select = [
     "UP",    # pyupgrade
     "W",     # pycodestyle warnings
 ]
+ignore = [
+    "D105",  # magic methods
+    "D107",  # __init__ arguments are documented on the class
+]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/*" = ["D"]
+"tests/*" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.pep8-naming]
 # public; the Home Assistant integration calls getVarserverVar

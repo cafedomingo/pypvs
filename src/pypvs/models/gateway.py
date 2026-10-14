@@ -45,6 +45,7 @@ def _interfaces(model: str) -> tuple[str, ...]:
 
 
 def extra_vars(model: str, has_ess: bool) -> tuple[str, ...]:
+    """The optional variables a PVS model has, with or without an ESS."""
     skip: set[str] = set()
     if model.strip() == Model.PVS5:
         skip |= PVS6_ONLY_VARIABLES
@@ -119,8 +120,7 @@ class PVSGateway:
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSGateway:
-        """Initialize from a /sys/info varserver variables"""
-
+        """Initialize from /sys/info and the extra varserver variables."""
         pvs_model = str_var(data, Variable.MODEL).strip()
         hw_rev = str_var(data, Variable.HWREV).strip()
 

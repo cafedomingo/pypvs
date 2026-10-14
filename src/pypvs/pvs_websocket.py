@@ -76,23 +76,31 @@ class PVSWebSocket:
 
     @property
     def is_connected(self) -> bool:
+        """True while the websocket is connected."""
         return self._state is ConnectionState.CONNECTED
 
     @property
     def state(self) -> ConnectionState:
+        """The connection state."""
         return self._state
 
     def add_listener(self, callback: LiveDataCallback) -> Callable[[], None]:
-        """Call `callback` with the var paths whose values changed. Returns a
-        function that removes it."""
+        """Call `callback` with the var paths whose values changed.
+
+        Returns:
+            A function that removes the listener.
+        """
         self._callbacks.append(callback)
         return _remover(self._callbacks, callback)
 
     def add_state_listener(
         self, callback: ConnectionStateCallback
     ) -> Callable[[], None]:
-        """Call `callback` with each new state. Returns a function that removes
-        it."""
+        """Call `callback` with each new state.
+
+        Returns:
+            A function that removes the listener.
+        """
         self._state_callbacks.append(callback)
         return _remover(self._state_callbacks, callback)
 
@@ -102,6 +110,7 @@ class PVSWebSocket:
             self._task = asyncio.create_task(self._run())
 
     async def disconnect(self) -> None:
+        """Close the connection and stop reconnecting."""
         task, self._task = self._task, None
         self._live_data = None
         self._set_state(ConnectionState.DISCONNECTED)

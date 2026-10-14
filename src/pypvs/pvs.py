@@ -1,3 +1,5 @@
+"""The PVS client: varserver reads and the poll that builds PVSData."""
+
 import logging
 from typing import Any
 
@@ -35,6 +37,18 @@ def _values(response_data: Any) -> dict[str, Any]:
 
 
 class PVS:
+    """A PVS gateway on the local network.
+
+    Call setup() once, then update() to poll.
+
+    Args:
+        session: The aiohttp session to make requests with.
+        host: The PVS host name or IP address.
+        user: The local API user.
+        password: The local API password, usually the last 5 characters of
+            the serial number.
+    """
+
     def __init__(
         self,
         session: aiohttp.ClientSession,
@@ -57,11 +71,20 @@ class PVS:
         self.host = host
 
     def update_clients(self) -> None:
+        """Point the FCGI client at the current host."""
         self.fcgi_client.pvs_url = f"https://{self.host}" if self.host else None
 
     async def getVarserver(
         self, endpoint: str, params: dict[str, str] | None = None
     ) -> Any:
+        """POST to a local API endpoint and return the decoded JSON.
+
+        Raises:
+            PVSAuthenticationError: If the PVS rejects the login.
+            PVSCommunicationError: If the PVS cannot be reached or answers
+                with an error status.
+            PVSError: On any other failure.
+        """
         try:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
@@ -80,6 +103,7 @@ class PVS:
             raise PVSError(f"Unexpected error communicating with PVS: {err}") from err
 
     async def getVarserverVar(self, varname: str) -> Any:
+        """Read one variable."""
         response_data = await self.getVarserver(Endpoint.VARS, params={"name": varname})
 
         try:
@@ -92,8 +116,10 @@ class PVS:
             ) from err
 
     async def getVarserverVarsByName(self, names: list[str]) -> dict[str, Any]:
-        """Read several variables in one request. The PVS answers 400 for the
-        whole request if any of the names is unknown."""
+        """Read several variables in one request.
+
+        The PVS answers 400 for the whole request if any name is unknown.
+        """
         if not names:
             return {}
         return _values(
@@ -101,6 +127,7 @@ class PVS:
         )
 
     async def getVarserverVars(self, match: str) -> dict[str, Any]:
+        """Read every variable whose name starts with match."""
         values = _values(
             await self.getVarserver(Endpoint.VARS, params={"match": match})
         )
@@ -112,6 +139,11 @@ class PVS:
         await self._firmware.setup()
 
     async def setup(self, auth_password: str | None = None) -> None:
+        """Discover the PVS if needed, then check that login works.
+
+        Args:
+            auth_password: Replaces the password given to the constructor.
+        """
         if not self._firmware.serial:
             await self.discover()
 
@@ -123,11 +155,12 @@ class PVS:
         await self.getVarserverVar(Variable.UPTIME)
 
     async def validate(self) -> bool:
-        # just try to read some variables to see if the connection to the PVS is ok
+        """Check that the PVS answers: True, or raises PVSError."""
         await self._firmware.setup()
         return True
 
     async def update(self) -> PVSData:
+        """Read the gateway and its devices; the result is also kept in data."""
         data = PVSData()
         await self._gateway.update(data)
         data.inverters = await self._inverters.update(data)

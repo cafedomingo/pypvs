@@ -1,4 +1,4 @@
-"""Model for a Equinox ESS (Energy Storage System)."""
+"""Model for an Equinox ESS (Energy Storage System)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def _percent(ratio: float | None) -> float | None:
 
 @dataclass(slots=True)
 class PVSESS:
-    """Model for a Equinox ESS (Energy Storage System)."""
+    """Model for an Equinox ESS (Energy Storage System)."""
 
     MATCH: ClassVar[str] = Match.ESS
 
@@ -42,8 +42,7 @@ class PVSESS:
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSESS:
-        """Initialize from /sys/devices/ess/*/* varserver variables packed in JSON."""
-
+        """Initialize from one device's variables, as group_device_vars packs them."""
         soc_val_scaled = _percent(float_var(data, "socVal"))
         customer_soc_val_scaled = _percent(float_var(data, "customerSocVal"))
         soh_val_scaled = _percent(float_var(data, "sohVal"))

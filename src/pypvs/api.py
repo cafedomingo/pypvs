@@ -1,5 +1,7 @@
-"""The PVS local API pypvs uses: doc/LocalAPI.md, and the variables in
-doc/varserver-variables-public-*.csv."""
+"""The PVS local API pypvs uses.
+
+See doc/LocalAPI.md and the variables in doc/varserver-variables-public-*.csv.
+"""
 
 from enum import StrEnum
 
@@ -14,16 +16,22 @@ class _Path(StrEnum):
 
 
 class Endpoint(_Path):
+    """Local API endpoints, relative to the PVS URL."""
+
     AUTH_LOGIN = "/auth?login"
     VARS = "/vars"
 
 
 class Model(_Path):
+    """PVS hardware models, as /sys/info/model reports them."""
+
     PVS5 = "PVS5"
     PVS6 = "PVS6"
 
 
 class SysType(_Path):
+    """System types, as /sys/info/sys_type reports them."""
+
     #: varserver's default before the PVS has set it
     UNKNOWN = "Unknown"
     PV_ONLY = "PV-only"
@@ -42,6 +50,8 @@ class Match(_Path):
 
 
 class Variable(_Path):
+    """Varserver variables pypvs reads or sets."""
+
     #: backup reserve as a 0-1 ratio of customer state of charge
     ESS_RESERVE_SOC = "/ess/config/dcm/control_param/min_customer_soc"
     #: configured battery mode; can differ from the ESS's live opMode

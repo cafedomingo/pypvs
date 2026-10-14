@@ -11,35 +11,24 @@ from .varserver_coerce import float_var, report_time_var, str_var
 
 @dataclass(slots=True)
 class PVSInverter:
-    """
-    Model for an Enphase microinverter.
+    """Model for an Enphase microinverter.
+
+    Values the inverter did not report are None.
 
     Attributes:
-        serial_number (str): The serial number of the inverter.
-        model (str): The model name or number of the inverter.
-        last_report_date (Optional[int]): The timestamp of the
-            last report in UTC seconds.
-        last_report_kw (Optional[float|str]): The last reported AC power
-            output in kilowatts.
-        last_report_voltage_v (Optional[float|str]): The last reported AC
-            voltage in volts.
-        last_report_current_a (Optional[float|str]): The last reported AC
-            current in amperes.
-        last_report_frequency_hz (Optional[float|str]): The last reported AC
-            frequency in hertz.
-        last_report_temperature_c (Optional[float|str]): The last reported
-            temperature in degrees Celsius.
-        lte_kwh (Optional[float|str]): The lifetime energy produced by the
-            inverter in kilowatt-hours.
-        last_mppt_voltage_v (Optional[float|str]): The DC voltage from the panel.
-        last_mppt_current_a (Optional[float|str]): The DC current from the panel.
-        last_mppt_power_kw (Optional[float|str]): The DC power from the panel.
-
-    Methods:
-        from_varserver(data: dict[str, Any]) -> PVSInverter:
-            Class method to initialize a PVSInverter instance from a
-            dictionary of varserver variables.
-            Converts the date string in ISO 8601 format to a UTC timestamp.
+        serial_number: The serial number of the inverter.
+        model: The model name or number of the inverter.
+        last_report_date: When the inverter last reported, in UTC seconds; 0
+            if unknown.
+        last_report_kw: AC power in kilowatts.
+        last_report_voltage_v: AC voltage in volts.
+        last_report_current_a: AC current in amperes.
+        last_report_frequency_hz: AC frequency in hertz.
+        last_report_temperature_c: Heatsink temperature in degrees Celsius.
+        lte_kwh: Lifetime energy produced in kilowatt-hours.
+        last_mppt_voltage_v: DC voltage from the panel.
+        last_mppt_current_a: DC current from the panel.
+        last_mppt_power_kw: DC power from the panel, in kilowatts.
     """
 
     MATCH: ClassVar[str] = Match.INVERTERS
@@ -59,9 +48,7 @@ class PVSInverter:
 
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSInverter:
-        """Initialize from /sys/devices/inverter/*/* varserver variables
-        packed in JSON to a PVSInverter instance."""
-
+        """Initialize from one device's variables, as group_device_vars packs them."""
         return cls(
             serial_number=str_var(data, "sn"),
             model=str_var(data, "prodMdlNm"),
