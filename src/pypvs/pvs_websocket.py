@@ -13,7 +13,7 @@ from typing import Any
 import aiohttp
 
 from .api import WEBSOCKET_PORT
-from .models.livedata import LIVEDATA_FIELD_DEFINITIONS, PVSLiveData
+from .models.livedata import LIVEDATA_FIELDS, PVSLiveData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +21,13 @@ RETRY_S = 5
 CONNECT_TIMEOUT_S = 10
 # the PVS sends a message every second
 STALE_S = 10
+
+# Each param is named after the last segment of its variable's path, e.g.
+# pv_p for /sys/livedata/pv_p.
+_PARAMS = tuple(
+    (var_path.rsplit("/", 1)[1], var_path, attr, parse)
+    for attr, (var_path, parse) in LIVEDATA_FIELDS.items()
+)
 
 _CLOSED = (
     aiohttp.WSMsgType.CLOSE,
@@ -187,11 +194,11 @@ class PVSWebSocket:
         params = data.get("params")
         if not isinstance(params, dict) or self._live_data is None:
             return
-        changed = set()
-        for ws_field, var_path, attr, value_type in LIVEDATA_FIELD_DEFINITIONS:
-            if ws_field not in params:
+        changed: set[str] = set()
+        for param, var_path, attr, parse in _PARAMS:
+            if param not in params:
                 continue
-            value = getattr(PVSLiveData, f"_parse_{value_type}")(params[ws_field])
+            value = parse(params[param])
             if getattr(self._live_data, attr) != value:
                 setattr(self._live_data, attr, value)
                 changed.add(var_path)

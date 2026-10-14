@@ -3,37 +3,84 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from ..api import Variable
 
-# Canonical field definitions for livedata.
-# Each tuple: (ws_field_name, var_path, attr_name, value_type)
-LIVEDATA_FIELD_DEFINITIONS: tuple[tuple[str, str, str, str], ...] = (
-    ("time", Variable.LIVEDATA_TIME, "time", "timestamp"),
-    ("pv_p", Variable.LIVEDATA_PV_P, "pv_p", "numeric"),
-    ("pv_en", Variable.LIVEDATA_PV_EN, "pv_en", "numeric"),
-    ("net_p", Variable.LIVEDATA_NET_P, "net_p", "numeric"),
-    ("net_en", Variable.LIVEDATA_NET_EN, "net_en", "numeric"),
-    ("site_load_p", Variable.LIVEDATA_SITE_LOAD_P, "site_load_p", "numeric"),
-    ("site_load_en", Variable.LIVEDATA_SITE_LOAD_EN, "site_load_en", "numeric"),
-    ("ess_en", Variable.LIVEDATA_ESS_EN, "ess_en", "numeric"),
-    ("ess_p", Variable.LIVEDATA_ESS_P, "ess_p", "numeric"),
-    ("soc", Variable.LIVEDATA_SOC, "soc", "numeric"),
-    (
-        "backupTimeRemaining",
-        Variable.LIVEDATA_BACKUP_TIME_REMAINING,
-        "backup_time_remaining",
-        "numeric",
-    ),
-    ("midstate", Variable.LIVEDATA_MIDSTATE, "midstate", "string"),
-)
 
-# Mapping from varserver path to attribute name (derived from field definitions)
+def _parse_numeric(value: Any) -> float | None:
+    """Parse a numeric value from varserver response."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            number = float(value)
+        except OverflowError:  # an int too large for a float
+            return None
+    elif isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    # nan/inf are "no reading"; NaN would also never compare equal
+    return number if math.isfinite(number) else None
+
+
+def _parse_string(value: Any) -> str | None:
+    """Parse a string value; the wire may carry it as a number."""
+    return None if value is None else str(value)
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    """Parse a timestamp value from varserver response.
+
+    Handles both Unix seconds and milliseconds formats.
+    """
+    if value is None:
+        return None
+    try:
+        timestamp: float = int(value)
+        current_time = datetime.now(UTC).timestamp()
+
+        # Detect milliseconds vs seconds
+        if timestamp > current_time + (365 * 24 * 3600):
+            timestamp = timestamp / 1000
+
+        # Validate
+        if timestamp < 0 or timestamp > current_time + (365 * 24 * 3600):
+            return None
+
+        return datetime.fromtimestamp(timestamp, tz=UTC)
+    except (ValueError, TypeError, OSError, OverflowError):
+        return None
+
+
+#: attribute -> its /sys/livedata variable and the parser for its value
+LIVEDATA_FIELDS: dict[str, tuple[Variable, Callable[[Any], Any]]] = {
+    "time": (Variable.LIVEDATA_TIME, _parse_timestamp),
+    "pv_p": (Variable.LIVEDATA_PV_P, _parse_numeric),
+    "pv_en": (Variable.LIVEDATA_PV_EN, _parse_numeric),
+    "net_p": (Variable.LIVEDATA_NET_P, _parse_numeric),
+    "net_en": (Variable.LIVEDATA_NET_EN, _parse_numeric),
+    "site_load_p": (Variable.LIVEDATA_SITE_LOAD_P, _parse_numeric),
+    "site_load_en": (Variable.LIVEDATA_SITE_LOAD_EN, _parse_numeric),
+    "ess_en": (Variable.LIVEDATA_ESS_EN, _parse_numeric),
+    "ess_p": (Variable.LIVEDATA_ESS_P, _parse_numeric),
+    "soc": (Variable.LIVEDATA_SOC, _parse_numeric),
+    "backup_time_remaining": (
+        Variable.LIVEDATA_BACKUP_TIME_REMAINING,
+        _parse_numeric,
+    ),
+    "midstate": (Variable.LIVEDATA_MIDSTATE, _parse_string),
+}
+
 _VAR_PATH_TO_ATTR: dict[str, str] = {
-    var_path: attr_name for _, var_path, attr_name, _ in LIVEDATA_FIELD_DEFINITIONS
+    var_path: attr for attr, (var_path, _) in LIVEDATA_FIELDS.items()
 }
 
 
@@ -95,56 +142,7 @@ class PVSLiveData:
         """
         return cls(
             **{
-                attr: getattr(cls, f"_parse_{value_type}")(data.get(var_path))
-                for _, var_path, attr, value_type in LIVEDATA_FIELD_DEFINITIONS
+                attr: parse(data.get(var_path))
+                for attr, (var_path, parse) in LIVEDATA_FIELDS.items()
             }
         )
-
-    @staticmethod
-    def _parse_numeric(value: Any) -> float | None:
-        """Parse a numeric value from varserver response."""
-        if value is None or isinstance(value, bool):
-            return None
-        if isinstance(value, (int, float)):
-            try:
-                number = float(value)
-            except OverflowError:  # an int too large for a float
-                return None
-        elif isinstance(value, str):
-            try:
-                number = float(value)
-            except ValueError:
-                return None
-        else:
-            return None
-        # nan/inf are "no reading"; NaN would also never compare equal
-        return number if math.isfinite(number) else None
-
-    @staticmethod
-    def _parse_string(value: Any) -> str | None:
-        """Parse a string value; the wire may carry it as a number."""
-        return None if value is None else str(value)
-
-    @staticmethod
-    def _parse_timestamp(value: Any) -> datetime | None:
-        """Parse a timestamp value from varserver response.
-
-        Handles both Unix seconds and milliseconds formats.
-        """
-        if value is None:
-            return None
-        try:
-            timestamp: float = int(value)
-            current_time = datetime.now(UTC).timestamp()
-
-            # Detect milliseconds vs seconds
-            if timestamp > current_time + (365 * 24 * 3600):
-                timestamp = timestamp / 1000
-
-            # Validate
-            if timestamp < 0 or timestamp > current_time + (365 * 24 * 3600):
-                return None
-
-            return datetime.fromtimestamp(timestamp, tz=UTC)
-        except (ValueError, TypeError, OSError, OverflowError):
-            return None
