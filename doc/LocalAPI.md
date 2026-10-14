@@ -48,6 +48,8 @@ Two data output formats are currently supported:
 ### Available data points
 This list is subject to change, and we will most likely not be updating it regularly.  To check the data points available on your system, run a match query, but beware this will generate a lot of data.
 
+Device data under `/sys/devices/` is measured every 5 minutes, for every device at once: all devices carry the same `msmtEps`, so reading them more often returns the same measurement.
+
 Check the attached file [Varserver Variables](varserver-variables-public.csv) for the list of currenlty accessible variables.
 
 ### Live data websocket
@@ -55,7 +57,7 @@ The PVS also pushes live data over a websocket at `ws://$ip:9002`, with no authe
 
 The server (`WebSocket++/0.8.2` on a PVS6) sends one text frame a second and nothing else:
 
-    {"notification": "power", "params": {"time": 1791944553, "soc": 0.68, "site_load_p": 1.248, "net_p": 0.055, "pv_p": 0.0, "ess_p": 1.193, "site_load_en": 46691.564, "net_en": 17245.71, "pv_en": 31374.93, "ess_en": -1929.076}}
+    {"notification": "power", "params": {"time": 1790000000, "soc": 0.5, "site_load_p": 0.8, "net_p": -1.2, "pv_p": 2.5, "ess_p": -0.5, "site_load_en": 9500.75, "net_en": 3000.25, "pv_en": 12000.5, "ess_en": -500.0}}
 
 Every message carries the same ten params: `time` (Unix seconds, an integer), `soc` (0-1), `pv_p`, `net_p`, `site_load_p` and `ess_p` (kW), and `pv_en`, `net_en`, `site_load_en` and `ess_en` (kWh). `backupTimeRemaining` and `midstate` are not sent; read them from `/sys/livedata/` over HTTP.
 

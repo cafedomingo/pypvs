@@ -427,16 +427,16 @@ def test_reads_every_live_data_param():
     ws = connected_ws()
     ws._handle_message(
         power(
-            time=1791944553,
-            soc=0.68,
-            site_load_p=1.248,
-            net_p=0.055,
-            pv_p=0.0,
-            ess_p=1.193,
-            site_load_en=46691.564,
-            net_en=17245.71,
-            pv_en=31374.93,
-            ess_en=-1929.076,
+            time=1790000000,
+            soc=0.5,
+            site_load_p=0.8,
+            net_p=-1.2,
+            pv_p=2.5,
+            ess_p=-0.5,
+            site_load_en=9500.75,
+            net_en=3000.25,
+            pv_en=12000.5,
+            ess_en=-500.0,
             backupTimeRemaining=90,
             midstate=2,
         )

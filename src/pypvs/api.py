@@ -41,6 +41,7 @@ class SysType(_Path):
 class Match(_Path):
     """Prefixes for /vars?match= queries."""
 
+    DEVICES = "/sys/devices/"
     ESS = "/sys/devices/ess/"
     INVERTERS = "/sys/devices/inverter/"
     METERS = "/sys/devices/meter/"

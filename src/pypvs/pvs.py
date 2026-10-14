@@ -5,7 +5,7 @@ from typing import Any
 
 import aiohttp
 
-from .api import WEBSOCKET_PORT, Endpoint, SysType, Variable
+from .api import WEBSOCKET_PORT, Endpoint, Match, SysType, Variable
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -61,10 +61,10 @@ class PVS:
         self.data: PVSData | None = None
         # built once: they keep the gateway extras and what has been logged
         self._gateway = PVSGatewayUpdater(self)
-        self._inverters = PVSDeviceUpdater(self, PVSInverter)
-        self._meters = PVSDeviceUpdater(self, PVSMeter)
-        self._ess = PVSDeviceUpdater(self, PVSESS)
-        self._transfer_switches = PVSDeviceUpdater(self, PVSTransferSwitch)
+        self._inverters = PVSDeviceUpdater(PVSInverter)
+        self._meters = PVSDeviceUpdater(PVSMeter)
+        self._ess = PVSDeviceUpdater(PVSESS)
+        self._transfer_switches = PVSDeviceUpdater(PVSTransferSwitch)
         self.fcgi_client = PVSFCGIClient(
             session=session, auth_user=user, auth_password=password
         )
@@ -163,13 +163,21 @@ class PVS:
         """Read the gateway and its devices; the result is also kept in data."""
         data = PVSData()
         await self._gateway.update(data)
-        data.inverters = await self._inverters.update(data)
-        data.meters = await self._meters.update(data)
+        device_vars = await self._read_devices()
+        data.inverters = self._inverters.update(data, device_vars)
+        data.meters = self._meters.update(data, device_vars)
         if data.gateway and data.gateway.model == SysType.STORAGE:
-            data.ess = await self._ess.update(data)
-            data.transfer_switches = await self._transfer_switches.update(data)
+            data.ess = self._ess.update(data, device_vars)
+            data.transfer_switches = self._transfer_switches.update(data, device_vars)
         self.data = data
         return data
+
+    async def _read_devices(self) -> dict[str, Any] | PVSError:
+        """Every device's variables in one request, or why the read failed."""
+        try:
+            return await self.getVarserverVars(Match.DEVICES)
+        except PVSError as e:
+            return e
 
     @property
     def host(self) -> str | None:

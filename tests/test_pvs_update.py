@@ -51,18 +51,22 @@ UNLISTED = PVSCommunicationError("HTTP 400", status=400)
 DEVICE_MATCHES = (Match.INVERTERS, Match.METERS, Match.ESS, Match.TRANSFER_SWITCH)
 
 
-def test_every_type_is_read_on_every_poll():
-    pvs, queries = make_pvs({}, sys_type=SysType.STORAGE)
+def test_every_device_is_read_in_one_request_per_poll():
+    every_device = INV | METER | ESS | SWITCH
+    pvs, queries = make_pvs({Match.DEVICES: [every_device]}, sys_type=SysType.STORAGE)
     asyncio.run(pvs.update())
-    asyncio.run(pvs.update())
-    assert {m: queries[m] for m in DEVICE_MATCHES} == dict.fromkeys(DEVICE_MATCHES, 2)
+    data = asyncio.run(pvs.update())
+    assert queries[Match.DEVICES] == 2
+    assert not any(queries[m] for m in DEVICE_MATCHES)
+    kinds = (data.inverters, data.meters, data.ess, data.transfer_switches)
+    assert [list(k) for k in kinds] == [["A"], ["M"], ["E"], ["T"]]
 
 
 @pytest.mark.parametrize("missing", [UNLISTED, {}])
 def test_a_type_missing_on_one_poll_is_back_on_the_next(missing):
     """Right after a boot the PVS answers 400 or nothing for types it has
     not listed yet."""
-    pvs, _ = make_pvs({Match.INVERTERS: [missing, INV], Match.METERS: [missing, METER]})
+    pvs, _ = make_pvs({Match.DEVICES: [missing, INV | METER]})
     first = asyncio.run(pvs.update())
     second = asyncio.run(pvs.update())
     assert first.inverters == {}
@@ -72,25 +76,30 @@ def test_a_type_missing_on_one_poll_is_back_on_the_next(missing):
 
 
 @pytest.mark.parametrize("sys_type", [SysType.PV_ONLY, SysType.UNKNOWN])
-def test_battery_devices_are_read_only_on_a_storage_system(sys_type):
-    pvs, queries = make_pvs({Match.ESS: [ESS]}, sys_type=sys_type)
+def test_battery_devices_are_built_only_on_a_storage_system(sys_type):
+    pvs, _ = make_pvs({Match.DEVICES: [ESS | SWITCH]}, sys_type=sys_type)
     data = asyncio.run(pvs.update())
-    assert queries[Match.ESS] == 0
-    assert queries[Match.TRANSFER_SWITCH] == 0
     assert data.ess == {}
+    assert data.transfer_switches == {}
 
 
 @pytest.mark.parametrize("sys_type", [SysType.STORAGE, "Storage\n"])
 def test_a_storage_system_reads_its_battery_devices(sys_type):
-    responses = {Match.ESS: [ESS], Match.TRANSFER_SWITCH: [SWITCH]}
-    pvs, _ = make_pvs(responses, sys_type=sys_type)
+    pvs, _ = make_pvs({Match.DEVICES: [ESS | SWITCH]}, sys_type=sys_type)
     data = asyncio.run(pvs.update())
     assert list(data.ess) == ["E"]
     assert list(data.transfer_switches) == ["T"]
 
 
+def test_a_failed_device_read_keeps_the_gateway():
+    pvs, _ = make_pvs({Match.DEVICES: [PVSCommunicationError("Cannot reach the PVS")]})
+    data = asyncio.run(pvs.update())
+    assert data.gateway is not None
+    assert data.inverters == {}
+
+
 def test_a_gateway_failure_fails_the_update_and_keeps_the_last_data():
-    pvs, _ = make_pvs({Match.INVERTERS: [INV]})
+    pvs, _ = make_pvs({Match.DEVICES: [INV]})
     last = asyncio.run(pvs.update())
 
     async def unreachable(names):
