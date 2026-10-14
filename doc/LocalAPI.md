@@ -50,6 +50,15 @@ This list is subject to change, and we will most likely not be updating it regul
 
 Check the attached file [Varserver Variables](varserver-variables-public.csv) for the list of currenlty accessible variables.
 
+### Live data websocket
+The PVS also pushes live data over a websocket at `ws://$ip:9002`, with no authentication. Set `/sys/telemetryws/enable=1` (see "Set a variable by name" below) to make sure it is on.
+
+The server (`WebSocket++/0.8.2` on a PVS6) sends one text frame a second and nothing else:
+
+    {"notification": "power", "params": {"time": 1791944553, "soc": 0.68, "site_load_p": 1.248, "net_p": 0.055, "pv_p": 0.0, "ess_p": 1.193, "site_load_en": 46691.564, "net_en": 17245.71, "pv_en": 31374.93, "ess_en": -1929.076}}
+
+Every message carries the same ten params: `time` (Unix seconds, an integer), `soc` (0-1), `pv_p`, `net_p`, `site_load_p` and `ess_p` (kW), and `pv_en`, `net_en`, `site_load_en` and `ess_en` (kWh). `backupTimeRemaining` and `midstate` are not sent; read them from `/sys/livedata/` over HTTP.
+
 ### Examples
 All the examples are shown below using curl to demonstrate the API features.
 in all the examples below:
