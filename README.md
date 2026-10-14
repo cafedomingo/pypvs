@@ -1,6 +1,8 @@
 # PyPVS
 
-**PyPVS** is a Python package that provides a Python API for interacting with **SunStrong Management PVS6** and **PVS5** gateways. It enables developers to access gateway data and issue commands programmatically.  
+**PyPVS** is a Python client for **SunStrong Management PVS6** and **PVS5** gateways. It reads gateway, device and live power data over the gateway's local API.
+
+This is a fork of [SunStrong-Management/pypvs](https://github.com/SunStrong-Management/pypvs).
 
 [![GitHub Release](https://img.shields.io/github/v/release/cafedomingo/pypvs)](https://github.com/cafedomingo/pypvs/releases)
 
