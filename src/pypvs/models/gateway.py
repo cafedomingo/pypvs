@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..api import INTERFACES_BY_MODEL, PVS6_ONLY_VARIABLES, Model, Variable, net_state
-from .values import get_count, get_flag, get_float, get_int, get_str, get_text
+from .values import get_count, get_flag, get_float, get_hex, get_int, get_str, get_text
 
 #: read every poll; all required
 CORE_VARS = (
@@ -88,15 +88,15 @@ class PVSGateway:
     @classmethod
     def from_varserver(cls, data: dict[str, Any]) -> PVSGateway:
         """Initialize from /sys/info and the extra varserver variables."""
-        pvs_model = get_str(data, Variable.MODEL)
-        hw_rev = get_str(data, Variable.HWREV)
+        pvs_model = get_str(data, Variable.MODEL).strip()
+        hw_rev = get_str(data, Variable.HWREV).strip()
 
         # tenths in hex, e.g. "0x02" is 20%; only on the PVS6
-        flashwear = get_count(data, Variable.FLASHWEAR)
+        flashwear = get_hex(data, Variable.FLASHWEAR)
         flashwear_percent = None if flashwear is None else min(flashwear * 10, 100)
 
         return cls(
-            model=get_str(data, Variable.SYS_TYPE),
+            model=get_str(data, Variable.SYS_TYPE).strip(),
             pvs_type=pvs_model,
             hardware_version=f"{pvs_model} {hw_rev}",
             software_version=get_str(data, Variable.SW_REV),

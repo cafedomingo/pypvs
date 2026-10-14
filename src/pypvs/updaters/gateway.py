@@ -79,7 +79,7 @@ class PVSGatewayUpdater:
             raise next(iter(errors.values()))
 
         # sys_type reads Unknown for a while after a reboot
-        storage = get_str(sys_info, Variable.SYS_TYPE) == SysType.STORAGE
+        storage = get_str(sys_info, Variable.SYS_TYPE).strip() == SysType.STORAGE
         if (
             self._extras_at is None
             or storage != self._storage

@@ -10,6 +10,7 @@ from pypvs.models.values import (
     get_count,
     get_flag,
     get_float,
+    get_hex,
     get_int,
     get_report_time,
     get_str,
@@ -63,7 +64,7 @@ def test_get_str():
     assert get_str({}, "k") == ""
     assert get_str({}, "k", None) is None
     assert get_str({"k": 5}, "k", None) == "5"
-    assert get_str({"k": " PVS6 \n"}, "k") == "PVS6"
+    assert get_str({"k": " PVS6 \n"}, "k") == " PVS6 \n"  # as the PVS sent it
 
 
 @pytest.mark.parametrize(
@@ -82,10 +83,26 @@ def test_get_flag(raw, expected):
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("0", 0), ("42", 42), ("0x00ab", 0xAB), ("0X1F", 0x1F), ("-1", None), ("", None)],
+    [
+        ("0", 0),
+        ("42", 42),
+        ("0x00ab", 0xAB),
+        ("0X1F", 0x1F),
+        ("-1", None),
+        ("", None),
+        ("9" * 5000, None),  # over int()'s digit limit
+    ],
 )
 def test_get_count(raw, expected):
     assert get_count({"k": raw}, "k") == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("0x01", 1), ("0x0B", 11), ("10", 16), ("0A", 10), ("garbage", None), ("", None)],
+)
+def test_get_hex(raw, expected):
+    assert get_hex({"k": raw}, "k") == expected
 
 
 @pytest.mark.parametrize(

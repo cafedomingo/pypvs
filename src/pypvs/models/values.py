@@ -49,14 +49,17 @@ def get_str(data: dict[str, Any], key: str, default: str = "") -> str: ...
 @overload
 def get_str(data: dict[str, Any], key: str, default: None) -> str | None: ...
 def get_str(data: dict[str, Any], key: str, default: str | None = "") -> str | None:
-    """data[key] as a str with surrounding whitespace removed."""
+    """data[key] as a str."""
     value = data.get(key)
-    return default if value is None else str(value).strip()
+    return default if value is None else str(value)
 
 
 def get_text(data: dict[str, Any], key: str) -> str | None:
-    """data[key] as a str; None if it is empty or varserver's "TBD"."""
+    """data[key] as a stripped str; None if it is empty or varserver's "TBD"."""
     value = get_str(data, key, None)
+    if value is None:
+        return None
+    value = value.strip()
     return None if value in _PLACEHOLDERS else value
 
 
@@ -71,9 +74,23 @@ def get_count(data: dict[str, Any], key: str) -> int | None:
     value = get_text(data, key)
     if value is None:
         return None
-    if re.fullmatch(r"0[xX][0-9a-fA-F]+", value):
+    try:
+        if re.fullmatch(r"0[xX][0-9a-fA-F]+", value):
+            return int(value, 16)
+        return int(value) if re.fullmatch(r"[0-9]+", value) else None
+    except ValueError:  # over int()'s limit of 4300 decimal digits
+        return None
+
+
+def get_hex(data: dict[str, Any], key: str) -> int | None:
+    """data[key], hex with or without a 0x prefix, as an int."""
+    value = get_text(data, key)
+    if value is None:
+        return None
+    try:
         return int(value, 16)
-    return int(value) if re.fullmatch(r"[0-9]+", value) else None
+    except ValueError:
+        return None
 
 
 def get_unix_time(data: dict[str, Any], key: str) -> datetime | None:
