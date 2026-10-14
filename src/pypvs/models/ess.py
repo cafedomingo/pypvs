@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
+from ..api import Match
 from .varserver_coerce import float_var, report_time_var, str_var
 
 
@@ -15,6 +16,8 @@ def _percent(ratio: float | None) -> float | None:
 @dataclass(slots=True)
 class PVSESS:
     """Model for a Equinox ESS (Energy Storage System)."""
+
+    MATCH: ClassVar[str] = Match.ESS
 
     serial_number: str
     model: str

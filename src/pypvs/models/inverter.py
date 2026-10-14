@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
+from ..api import Match
 from .varserver_coerce import float_var, report_time_var, str_var
 
 
@@ -40,6 +41,8 @@ class PVSInverter:
             dictionary of varserver variables.
             Converts the date string in ISO 8601 format to a UTC timestamp.
     """
+
+    MATCH: ClassVar[str] = Match.INVERTERS
 
     serial_number: str
     model: str

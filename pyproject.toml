@@ -79,7 +79,6 @@ select = [
     "UP",    # pyupgrade
     "W",     # pycodestyle warnings
 ]
-ignore = ["N818"]  # PVSProbeFailed is public
 
 [tool.ruff.lint.pep8-naming]
 # public; the Home Assistant integration calls getVarserverVar

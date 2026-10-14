@@ -1,49 +1,27 @@
 import logging
-import time
-from collections.abc import Callable
 from typing import Any
 
 import aiohttp
 
-from .api import WEBSOCKET_PORT, Endpoint, Variable
-from .const import SupportedFeatures
+from .api import WEBSOCKET_PORT, Endpoint, SysType, Variable
 from .exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
     PVSDataFormatError,
     PVSError,
-    PVSProbeFailed,
 )
 from .firmware import PVSFirmware
+from .models.ess import PVSESS
+from .models.inverter import PVSInverter
+from .models.meter import PVSMeter
 from .models.pvs import PVSData
+from .models.transfer_switch import PVSTransferSwitch
 from .pvs_fcgi import PVSFCGIClient, PVSFCGIClientLoginError, PVSFCGIClientPostError
 from .pvs_websocket import PVSWebSocket
-from .updaters.base import PVSUpdater
-from .updaters.ess import PVSESSUpdater
+from .updaters.device import PVSDeviceUpdater
 from .updaters.gateway import PVSGatewayUpdater
-from .updaters.meter import PVSProductionMetersUpdater
-from .updaters.production_inverters import PVSProductionInvertersUpdater
-from .updaters.transfer_switch import PVSTransferSwitchUpdater
-
-UPDATERS: list[type["PVSUpdater"]] = [
-    PVSProductionInvertersUpdater,
-    PVSProductionMetersUpdater,
-    PVSESSUpdater,
-    PVSTransferSwitchUpdater,
-    PVSGatewayUpdater,  # last, so its probe knows whether there is an ESS
-]
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def register_updater(updater: type["PVSUpdater"]) -> Callable[[], None]:
-    """Register an updater."""
-    UPDATERS.append(updater)
-
-    def _remove_updater() -> None:
-        UPDATERS.remove(updater)
-
-    return _remove_updater
 
 
 def _values(response_data: Any) -> dict[str, Any]:
@@ -56,24 +34,17 @@ def _values(response_data: Any) -> dict[str, Any]:
         ) from err
 
 
-def get_updaters() -> list[type[PVSUpdater]]:
-    return UPDATERS
-
-
 class PVS:
     def __init__(self, session, host=None, user="ssm_owner", password=None):
         self._host: str | None = None
-
         self._firmware = PVSFirmware(self.getVarserverVar)
-        self._supported_features: SupportedFeatures | None = None
-        self._updaters: list[PVSUpdater] = []
         self.data: PVSData | None = None
-
-        # Exponential backoff for inverter re-probe attempts
-        self._inverter_reprobe_interval: int = 60  # seconds
-        self._inverter_last_reprobe: float | None = None
-        self._inverter_reprobe_max: int = 1800  # 30 minutes
-
+        # built once: they keep the gateway extras and what has been logged
+        self._gateway = PVSGatewayUpdater(self)
+        self._inverters = PVSDeviceUpdater(self, PVSInverter)
+        self._meters = PVSDeviceUpdater(self, PVSMeter)
+        self._ess = PVSDeviceUpdater(self, PVSESS)
+        self._transfer_switches = PVSDeviceUpdater(self, PVSTransferSwitch)
         self.fcgi_client = PVSFCGIClient(
             session=session, auth_user=user, auth_password=password
         )
@@ -148,59 +119,14 @@ class PVS:
         await self._firmware.setup()
         return True
 
-    async def probe(self) -> None:
-        """Probe for model and supported features."""
-        supported_features = SupportedFeatures(0)
-        updaters: list[PVSUpdater] = []
-
-        for updater in get_updaters():
-            klass = updater(self)
-            if updater_features := await klass.probe(supported_features):
-                supported_features |= updater_features
-                updaters.append(klass)
-
-        if not supported_features & SupportedFeatures.GATEWAY:
-            raise PVSProbeFailed("Unable to find gateway information")
-
-        self._updaters = updaters
-        self._supported_features = supported_features
-
     async def update(self) -> PVSData:
-        """Update data."""
-        if not self._supported_features:
-            await self.probe()
-            features = self._supported_features or SupportedFeatures(0)
-            if not (features & SupportedFeatures.INVERTERS):
-                # start the re-probe backoff from this probe
-                self._inverter_last_reprobe = time.monotonic()
-        elif not (self._supported_features & SupportedFeatures.INVERTERS):
-            # Inverters not yet discovered — devices may have been offline
-            # during initial probe. Re-probe with exponential backoff.
-            now = time.monotonic()
-            if (
-                self._inverter_last_reprobe is None
-                or now - self._inverter_last_reprobe >= self._inverter_reprobe_interval
-            ):
-                _LOGGER.debug(
-                    "Inverters not yet discovered, re-probing (next retry in %ds)",
-                    self._inverter_reprobe_interval,
-                )
-                self._inverter_last_reprobe = now
-                await self.probe()
-                if not (self._supported_features & SupportedFeatures.INVERTERS):
-                    self._inverter_reprobe_interval = min(
-                        self._inverter_reprobe_interval * 2,
-                        self._inverter_reprobe_max,
-                    )
-                else:
-                    # Found inverters — reset backoff state
-                    self._inverter_reprobe_interval = 60
-                    self._inverter_last_reprobe = None
-
         data = PVSData()
-        for updater in self._updaters:
-            await updater.update(data)
-
+        await self._gateway.update(data)
+        data.inverters = await self._inverters.update(data)
+        data.meters = await self._meters.update(data)
+        if data.gateway and data.gateway.model == SysType.STORAGE:
+            data.ess = await self._ess.update(data)
+            data.transfer_switches = await self._transfer_switches.update(data)
         self.data = data
         return data
 
@@ -218,12 +144,6 @@ class PVS:
     def serial_number(self) -> str | None:
         """Return the PVS serial number."""
         return self._firmware.serial
-
-    @property
-    def supported_features(self) -> SupportedFeatures:
-        """Return the supported features."""
-        assert self._supported_features is not None, "Call setup() first"  # nosec
-        return self._supported_features
 
     async def enable_telemetry_websocket(self) -> None:
         """Enable the telemetry websocket on the PVS."""

@@ -1,76 +1,114 @@
-"""PVS.update(): probing and re-probing for inverters."""
+"""PVS.update(): which device types are read, and when."""
 
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 
 import pytest
 
-import pypvs.pvs as pvs_module
+from pypvs.api import Match, SysType, Variable
 from pypvs.exceptions import PVSCommunicationError
 from pypvs.pvs import PVS
 
 
-class Clock:
-    def __init__(self):
-        self.now = 1000.0
-
-    def monotonic(self):
-        return self.now
-
-
-def make_pvs(monkeypatch, inverter_answers):
-    """A PVS whose varserver has a gateway, no other devices, and inverters
-    according to `inverter_answers` (one entry consumed per inverter query)."""
-    clock = Clock()
-    monkeypatch.setattr(pvs_module.time, "monotonic", clock.monotonic)
+def make_pvs(device_responses, sys_type=SysType.PV_ONLY):
+    """A PVS with a gateway. `device_responses` maps a device match to what
+    each query of it returns, in order, the last repeating; an exception is
+    raised. Unlisted matches return {}."""
     pvs = PVS(session=None, host="pvs.test")
-    answers = list(inverter_answers)
-    calls = {"inverter_queries": 0}
+    remaining = {match: list(seq) for match, seq in device_responses.items()}
+    queries = Counter()
 
     async def get_var(name):
         return "1"
 
     async def get_vars(match):
-        if match == "/sys/devices/inverter/":
-            calls["inverter_queries"] += 1
-            return answers.pop(0) if answers else {}
-        return {}
+        queries[match] += 1
+        queue = remaining.get(match) or [{}]
+        response = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     async def get_named(names):
-        return dict.fromkeys(names, "1")
+        queries.update(names)
+        return {n: sys_type if n == Variable.SYS_TYPE else "1" for n in names}
 
     pvs.getVarserverVar = get_var
     pvs.getVarserverVars = get_vars
     pvs.getVarserverVarsByName = get_named
-    # the updaters were bound at construction time
+    # bound at construction time
     pvs._firmware._request_var = get_var
-    return pvs, clock, calls
+    return pvs, queries
 
 
-def test_inverters_absent_at_startup_are_found_later(monkeypatch):
-    inv = {
-        "/sys/devices/inverter/0/sn": "A",
-        "/sys/devices/inverter/0/p3phsumKw": "0.3",
-    }
-    pvs, clock, _ = make_pvs(monkeypatch, [{}, {}, inv, inv])
-    asyncio.run(pvs.update())  # night: no inverters
-    clock.now += 61
-    asyncio.run(pvs.update())  # still none
-    clock.now += 121
+INV = {"/sys/devices/inverter/0/sn": "A", "/sys/devices/inverter/0/p3phsumKw": "0.3"}
+METER = {"/sys/devices/meter/0/sn": "M"}
+ESS = {"/sys/devices/ess/0/sn": "E"}
+SWITCH = {"/sys/devices/transfer_switch/0/sn": "T"}
+UNLISTED = PVSCommunicationError("HTTP 400", status=400)
+DEVICE_MATCHES = (Match.INVERTERS, Match.METERS, Match.ESS, Match.TRANSFER_SWITCH)
+
+
+def test_every_type_is_read_on_every_poll():
+    pvs, queries = make_pvs({}, sys_type=SysType.STORAGE)
+    asyncio.run(pvs.update())
+    asyncio.run(pvs.update())
+    assert {m: queries[m] for m in DEVICE_MATCHES} == dict.fromkeys(DEVICE_MATCHES, 2)
+
+
+@pytest.mark.parametrize("missing", [UNLISTED, {}])
+def test_a_type_missing_on_one_poll_is_back_on_the_next(missing):
+    """Right after a boot the PVS answers 400 or nothing for types it has
+    not listed yet."""
+    pvs, _ = make_pvs({Match.INVERTERS: [missing, INV], Match.METERS: [missing, METER]})
+    first = asyncio.run(pvs.update())
+    second = asyncio.run(pvs.update())
+    assert first.inverters == {}
+    assert first.meters == {}
+    assert list(second.inverters) == ["A"]
+    assert list(second.meters) == ["M"]
+
+
+@pytest.mark.parametrize("sys_type", [SysType.PV_ONLY, SysType.UNKNOWN])
+def test_battery_devices_are_read_only_on_a_storage_system(sys_type):
+    pvs, queries = make_pvs({Match.ESS: [ESS]}, sys_type=sys_type)
     data = asyncio.run(pvs.update())
-    assert list(data.inverters) == ["A"]
+    assert queries[Match.ESS] == 0
+    assert queries[Match.TRANSFER_SWITCH] == 0
+    assert data.ess == {}
 
 
-def test_reprobe_waits_for_the_backoff_after_the_first_probe(monkeypatch):
-    """The first probe found no inverters; the next poll a second later must
-    not re-probe straight away."""
-    pvs, clock, calls = make_pvs(monkeypatch, [])
+@pytest.mark.parametrize("sys_type", [SysType.STORAGE, "Storage\n"])
+def test_a_storage_system_reads_its_battery_devices(sys_type):
+    responses = {Match.ESS: [ESS], Match.TRANSFER_SWITCH: [SWITCH]}
+    pvs, _ = make_pvs(responses, sys_type=sys_type)
+    data = asyncio.run(pvs.update())
+    assert list(data.ess) == ["E"]
+    assert list(data.transfer_switches) == ["T"]
+
+
+def test_a_gateway_failure_fails_the_update_and_keeps_the_last_data():
+    pvs, _ = make_pvs({Match.INVERTERS: [INV]})
+    last = asyncio.run(pvs.update())
+
+    async def unreachable(names):
+        raise PVSCommunicationError("Cannot reach the PVS: timeout")
+
+    pvs.getVarserverVarsByName = unreachable
+    with pytest.raises(PVSCommunicationError):
+        asyncio.run(pvs.update())
+    assert pvs.data is last
+
+
+@pytest.mark.parametrize(
+    ("sys_type", "asks"), [(SysType.STORAGE, True), (SysType.PV_ONLY, False)]
+)
+def test_the_gateway_asks_for_battery_config_only_on_a_storage_system(sys_type, asks):
+    pvs, queries = make_pvs({}, sys_type=sys_type)
     asyncio.run(pvs.update())
-    probes_after_startup = calls["inverter_queries"]
-    clock.now += 1
-    asyncio.run(pvs.update())
-    assert calls["inverter_queries"] == probes_after_startup
+    assert (queries[Variable.ESS_CONTROL_MODE] > 0) is asks
 
 
 def test_websocket_needs_a_host():
@@ -83,24 +121,3 @@ def test_clearing_the_host_clears_the_client_url():
     assert pvs.fcgi_client.pvs_url == "https://10.0.0.5"
     pvs.host = None
     assert pvs.fcgi_client.pvs_url is None
-
-
-@pytest.mark.parametrize("has_ess", [True, False])
-def test_the_gateway_asks_for_battery_config_only_with_a_battery(has_ess):
-    pvs = PVS(session=None, host="pvs.test")
-    batches = []
-
-    async def get_vars(match):
-        if match == "/sys/devices/ess/" and has_ess:
-            return {"/sys/devices/ess/0/sn": "E"}
-        raise PVSCommunicationError("HTTP 400", status=400)  # no such devices
-
-    async def get_named(names):
-        batches.append(names)
-        return {name: "PVS6" if name == "/sys/info/model" else "1" for name in names}
-
-    pvs.getVarserverVars = get_vars
-    pvs.getVarserverVarsByName = get_named
-    asyncio.run(pvs.update())
-    asked = {n for batch in batches for n in batch}
-    assert ("/ess/config/dcm/mode_param/control_mode" in asked) is has_ess
