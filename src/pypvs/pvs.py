@@ -45,8 +45,8 @@ class PVS:
         session: The aiohttp session to make requests with.
         host: The PVS host name or IP address.
         user: The local API user.
-        password: The local API password, usually the last 5 characters of
-            the serial number.
+        password: The local API password; by default the last 5 characters
+            of the serial number.
     """
 
     def __init__(
