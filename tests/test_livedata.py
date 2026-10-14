@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import UTC, datetime
 
-from pypvs.models.livedata import PVSLiveData
+from pypvs.models.livedata import (
+    LIVEDATA_FIELDS,
+    PVSLiveData,
+    _parse_numeric,
+    _parse_timestamp,
+)
 
 # A /sys/livedata answer as the PVS6 actually returns it: every value a string.
 LIVE_STRINGS = {
@@ -35,12 +41,12 @@ def test_non_finite_numbers_are_missing():
     """'nan' strings already map to None; NaN/inf floats must too, or every
     comparison against them is wrong (NaN != NaN)."""
     for raw in (float("nan"), float("inf"), "inf", "-inf"):
-        value = PVSLiveData._parse_numeric(raw)
+        value = _parse_numeric(raw)
         assert value is None, raw
 
 
 def test_booleans_are_not_numbers():
-    assert PVSLiveData._parse_numeric(True) is None
+    assert _parse_numeric(True) is None
 
 
 def test_millisecond_timestamps():
@@ -55,7 +61,11 @@ def test_get_by_var_path():
 
 
 def test_out_of_range_values_are_missing_not_errors():
-    assert PVSLiveData._parse_numeric(10**400) is None
-    assert PVSLiveData._parse_numeric("1e400") is None
-    assert PVSLiveData._parse_timestamp(float("inf")) is None
-    assert PVSLiveData._parse_timestamp(10**400) is None
+    assert _parse_numeric(10**400) is None
+    assert _parse_numeric("1e400") is None
+    assert _parse_timestamp(float("inf")) is None
+    assert _parse_timestamp(10**400) is None
+
+
+def test_every_field_has_a_variable():
+    assert set(LIVEDATA_FIELDS) == {f.name for f in fields(PVSLiveData)}
