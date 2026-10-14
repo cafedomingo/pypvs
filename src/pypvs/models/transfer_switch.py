@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
+from ..api import Match
 from .varserver_coerce import float_var, report_time_var, str_var
 
 
 @dataclass(slots=True)
 class PVSTransferSwitch:
     """Model for a MIDC (Microgrid Interconnected Device Controller)."""
+
+    MATCH: ClassVar[str] = Match.TRANSFER_SWITCH
 
     serial_number: str
     model: str

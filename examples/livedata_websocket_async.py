@@ -10,7 +10,7 @@ import os
 
 import aiohttp
 
-from pypvs.exceptions import ENDPOINT_PROBE_EXCEPTIONS
+from pypvs.exceptions import PVSError
 from pypvs.pvs import PVS
 
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +37,7 @@ async def main():
             pvs_password = pvs_serial[-5:]
             await pvs.setup(auth_password=pvs_password)
             _LOGGER.info("Connected to PVS with serial: %s", pvs_serial)
-        except ENDPOINT_PROBE_EXCEPTIONS as e:
+        except PVSError as e:
             _LOGGER.error("Cannot communicate with the PVS: %s", e)
             return
 

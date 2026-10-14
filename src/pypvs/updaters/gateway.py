@@ -3,12 +3,12 @@ import time
 from http import HTTPStatus
 from typing import Any
 
-from ..api import Match, Variable
-from ..const import SupportedFeatures
+from ..api import Match, SysType, Variable
 from ..exceptions import PVSCommunicationError, PVSDataFormatError, PVSError
 from ..models.gateway import CORE_VARS, PVSGateway, extra_vars
 from ..models.pvs import PVSData
-from .base import PVSUpdater, Varserver
+from ..models.varserver_coerce import str_var
+from .base import Varserver
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,27 +19,16 @@ EXTRAS_REFRESH_S = 300
 EMPTY_REFRESHES_BEFORE_DROP = 3
 
 
-class PVSGatewayUpdater(PVSUpdater):
+class PVSGatewayUpdater:
     """Class to handle updates for the PVS gateway."""
 
     def __init__(self, pvs: Varserver) -> None:
-        super().__init__(pvs)
+        self._pvs = pvs
         self._extras: dict[str, Any] = {}
         self._extras_at: float | None = None
-        self._has_ess = False
+        self._storage = False
         # var name -> consecutive refreshes it came back empty
         self._empty_count: dict[str, int] = {}
-
-    async def probe(
-        self, discovered_features: SupportedFeatures
-    ) -> SupportedFeatures | None:
-        """Probe the PVS for this updater and return SupportedFeatures."""
-
-        # This updater is always available
-        _LOGGER.debug("Probing PVS for gateway data. It is aways available.")
-        self._has_ess = bool(discovered_features & SupportedFeatures.ESS)
-        self._supported_features |= SupportedFeatures.GATEWAY
-        return self._supported_features
 
     async def _read(
         self, names: tuple[str, ...]
@@ -84,8 +73,15 @@ class PVSGatewayUpdater(PVSUpdater):
         if errors:  # every core variable is required
             raise next(iter(errors.values()))
 
-        if self._extras_at is None or now - self._extras_at >= EXTRAS_REFRESH_S:
-            names = extra_vars(sys_info[Variable.MODEL], self._has_ess)
+        # sys_type reads Unknown for a while after a reboot
+        storage = str_var(sys_info, Variable.SYS_TYPE).strip() == SysType.STORAGE
+        if (
+            self._extras_at is None
+            or storage != self._storage
+            or now - self._extras_at >= EXTRAS_REFRESH_S
+        ):
+            self._storage = storage
+            names = extra_vars(sys_info[Variable.MODEL], storage)
             await self._refresh_extras(now, names)
 
         sys_info.update(self._extras)

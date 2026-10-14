@@ -7,7 +7,6 @@ import asyncio
 import pytest
 
 import pypvs.updaters.gateway as gateway_module
-from pypvs.const import SupportedFeatures
 from pypvs.exceptions import (
     PVSAuthenticationError,
     PVSCommunicationError,
@@ -85,17 +84,8 @@ class FakePVS:
     def asked(self):
         return self.calls + [n for batch in self.batches for n in batch]
 
-    def updater(self, ess=True):
-        updater = PVSGatewayUpdater(self)
-        features = SupportedFeatures.ESS if ess else SupportedFeatures(0)
-        asyncio.run(updater.probe(features))
-        return updater
-
-
-class Clock:
-    def __init__(self, monkeypatch):
-        self.now = 1000.0
-        monkeypatch.setattr(gateway_module.time, "monotonic", lambda: self.now)
+    def updater(self):
+        return PVSGatewayUpdater(self)
 
 
 def run(updater):
@@ -176,8 +166,7 @@ def test_partial_support_keeps_the_rest():
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
 
 
-def test_extras_are_refreshed_every_few_minutes_not_every_poll(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_extras_are_refreshed_every_few_minutes_not_every_poll(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -192,8 +181,7 @@ def test_extras_are_refreshed_every_few_minutes_not_every_poll(monkeypatch):
     assert "/sys/info/boardtype" in pvs.asked()
 
 
-def test_a_timeout_on_an_extra_keeps_its_last_value(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_a_timeout_on_an_extra_keeps_its_last_value(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -221,8 +209,7 @@ def test_no_failure_on_an_extra_fails_the_gateway_update():
         assert gw.uptime_s == 81436.77, error
 
 
-def test_an_empty_answer_keeps_the_last_value(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_an_empty_answer_keeps_the_last_value(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -242,9 +229,8 @@ def test_a_slow_pvs_costs_one_timeout_per_refresh():
     assert len(pvs.batches) == 2
 
 
-def test_an_extra_that_appears_later_is_picked_up(monkeypatch):
+def test_an_extra_that_appears_later_is_picked_up(clock):
     """e.g. a battery commissioned after the exporter started."""
-    clock = Clock(monkeypatch)
     values = {**SYS_INFO, **NET}
     updater = FakePVS(values).updater()
     assert run(updater).ess_control_mode is None
@@ -284,8 +270,7 @@ def test_a_persistent_error_on_one_extra_does_not_starve_the_rest():
     assert gw.interface_states["wan0"] == "online"
 
 
-def test_a_value_that_stays_empty_is_dropped(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_a_value_that_stays_empty_is_dropped(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -313,8 +298,7 @@ def test_a_missing_required_var_fails_the_update():
         run(FakePVS(values).updater())
 
 
-def test_extras_keep_their_values_through_errors(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_extras_keep_their_values_through_errors(clock):
     pvs = FakePVS({**SYS_INFO, **EXTRAS, **NET})
     updater = pvs.updater()
     run(updater)
@@ -394,8 +378,7 @@ def test_a_malformed_batch_falls_back_to_single_reads():
     assert gw.ess_control_mode == "SELF_CONSUMPTION"
 
 
-def test_an_extra_that_starts_answering_400_is_dropped(monkeypatch):
-    clock = Clock(monkeypatch)
+def test_an_extra_that_starts_answering_400_is_dropped(clock):
     values = {**SYS_INFO, **EXTRAS, **NET}
     updater = FakePVS(values).updater()
     assert run(updater).ess_control_mode == "SELF_CONSUMPTION"
@@ -404,14 +387,25 @@ def test_an_extra_that_starts_answering_400_is_dropped(monkeypatch):
     assert run(updater).ess_control_mode is None
 
 
-def test_without_a_battery_its_config_is_not_asked_for(caplog):
+@pytest.mark.parametrize("sys_type", ["PV-only", "Unknown"])
+def test_without_a_battery_its_config_is_not_asked_for(caplog, sys_type):
     values = {
         k: v for k, v in {**SYS_INFO, **EXTRAS, **NET}.items() if "/ess/" not in k
     }
+    values["/sys/info/sys_type"] = sys_type
     pvs = FakePVS(values)
-    gw = run(pvs.updater(ess=False))
+    gw = run(pvs.updater())
     assert pvs.calls == []
     assert len(pvs.batches) == 2
     assert not any("/ess/" in n for batch in pvs.batches for n in batch)
     assert gw.ess_control_mode is None
     assert "Batched read" not in caplog.text
+
+
+def test_battery_config_is_read_as_soon_as_the_system_says_storage(clock):
+    """Right after a reboot sys_type reads Unknown for a while."""
+    values = {**SYS_INFO, **EXTRAS, **NET, "/sys/info/sys_type": "Unknown"}
+    updater = FakePVS(values).updater()
+    assert run(updater).ess_control_mode is None
+    values["/sys/info/sys_type"] = "Storage"
+    assert run(updater).ess_control_mode == "SELF_CONSUMPTION"

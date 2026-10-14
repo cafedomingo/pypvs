@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
+from ..api import Match
 from .varserver_coerce import float_var, report_time_var, str_var
 
 
 @dataclass(slots=True)
 class PVSMeter:
     """Model for a built-in PVS meter."""
+
+    MATCH: ClassVar[str] = Match.METERS
 
     serial_number: str
     model: str

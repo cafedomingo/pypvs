@@ -10,10 +10,6 @@ class PVSAuthenticationError(PVSError):
     """Exception raised when unable to get a session if from the PVS."""
 
 
-class PVSProbeFailed(PVSError):
-    """Exception raised when the PVS probe fails."""
-
-
 class PVSCommunicationError(PVSError):
     """Exception raised when the PVS communication fails.
 
@@ -28,12 +24,3 @@ class PVSCommunicationError(PVSError):
 
 class PVSDataFormatError(PVSError):
     """Exception raised when the PVS data format is incorrect."""
-
-
-ENDPOINT_PROBE_EXCEPTIONS = (
-    KeyError,
-    PVSAuthenticationError,
-    PVSCommunicationError,
-    PVSDataFormatError,
-    PVSProbeFailed,
-)

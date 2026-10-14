@@ -7,8 +7,7 @@ import asyncio
 import pytest
 
 from pypvs.exceptions import PVSDataFormatError
-from pypvs.pvs import PVS, register_updater
-from pypvs.updaters.base import PVSUpdater
+from pypvs.pvs import PVS
 
 
 def make_pvs(answer):
@@ -46,34 +45,6 @@ def test_a_malformed_answer_is_a_data_format_error(answer):
     pvs, _ = make_pvs(answer)
     with pytest.raises(PVSDataFormatError):
         asyncio.run(pvs.getVarserverVarsByName(["/a"]))
-
-
-def test_a_registered_updater_is_built_with_the_pvs():
-    seen = []
-
-    class Custom(PVSUpdater):
-        async def probe(self, discovered_features):
-            seen.append(self._pvs)
-
-        async def update(self, pvs_data):
-            pass
-
-    pvs, _ = make_pvs({"values": []})
-
-    async def get_var(name):
-        return "1"
-
-    async def get_vars(match):
-        raise PVSDataFormatError("none")
-
-    pvs.getVarserverVar = get_var
-    pvs.getVarserverVars = get_vars
-    remove = register_updater(Custom)
-    try:
-        asyncio.run(pvs.probe())
-    finally:
-        remove()
-    assert seen == [pvs]
 
 
 def test_enabling_the_telemetry_websocket_sets_its_flag():
