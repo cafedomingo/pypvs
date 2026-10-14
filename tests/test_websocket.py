@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import aiohttp
@@ -418,3 +419,26 @@ def test_a_cancelled_disconnect_stays_cancelled():
             assert ws.live_data is None
 
     asyncio.run(main())
+
+
+def test_reads_every_live_data_param():
+    """The params the PVS6 sends (doc/LocalAPI.md), plus backupTimeRemaining and
+    midstate, which it does not send but which are read the same way."""
+    ws = connected_ws()
+    ws._handle_message(
+        power(
+            time=1791944553,
+            soc=0.68,
+            site_load_p=1.248,
+            net_p=0.055,
+            pv_p=0.0,
+            ess_p=1.193,
+            site_load_en=46691.564,
+            net_en=17245.71,
+            pv_en=31374.93,
+            ess_en=-1929.076,
+            backupTimeRemaining=90,
+            midstate=2,
+        )
+    )
+    assert None not in asdict(ws.live_data).values()
