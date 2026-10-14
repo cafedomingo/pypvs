@@ -1,8 +1,7 @@
-"""The device updater: one kind of device from /sys/devices/."""
+"""The device updater: one kind of device from a /sys/devices/ read."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import pytest
@@ -27,25 +26,9 @@ def inverter_vars(*serials):
     return out
 
 
-class MatchReads:
-    """Answers each match query with the next of `responses`; an exception is
-    raised."""
-
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.matches = []
-
-    async def getVarserverVars(self, match):
-        self.matches.append(match)
-        response = self.responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-
-def read(updater):
+def read(updater, device_vars):
     data = PVSData()
-    return asyncio.run(updater.update(data)), data
+    return updater.update(data, device_vars), data
 
 
 @pytest.mark.parametrize(
@@ -62,27 +45,24 @@ def test_each_device_model_names_its_match(model, match):
 
 
 def test_devices_are_keyed_by_serial_and_kept_raw():
-    pvs = MatchReads([inverter_vars("A", "B")])
-    devices, data = read(PVSDeviceUpdater(pvs, PVSInverter))
-    assert pvs.matches == [Match.INVERTERS]
+    devices, data = read(PVSDeviceUpdater(PVSInverter), inverter_vars("A", "B"))
     assert list(devices) == ["A", "B"]
     assert devices["A"].lte_kwh == 1200.5
     assert [d["sn"] for d in data.raw[Match.INVERTERS]] == ["A", "B"]
 
 
-def test_meters_come_from_the_meter_match():
+def test_meters_come_from_the_meter_variables():
     meter = {"/sys/devices/meter/0/sn": "M1", "/sys/devices/meter/0/p3phsumKw": "1.5"}
-    pvs = MatchReads([meter])
-    devices, _ = read(PVSDeviceUpdater(pvs, PVSMeter))
-    assert pvs.matches == [Match.METERS]
+    devices, data = read(PVSDeviceUpdater(PVSMeter), inverter_vars("A") | meter)
     assert devices["M1"].power_3ph_kw == 1.5
+    assert data.raw == {Match.METERS: [{"sn": "M1", "p3phsumKw": "1.5"}]}
 
 
 def test_short_var_names_are_ignored():
     """'/sys/devices/inverter/0' has no param segment and must not raise."""
     answer = inverter_vars("A")
     answer["/sys/devices/inverter/0"] = "x"
-    devices, _ = read(PVSDeviceUpdater(MatchReads([answer]), PVSInverter))
+    devices, _ = read(PVSDeviceUpdater(PVSInverter), answer)
     assert list(devices) == ["A"]
 
 
@@ -97,12 +77,11 @@ def test_short_var_names_are_ignored():
 )
 def test_no_devices_warns_once_then_recovers(caplog, answer, reason):
     caplog.set_level(logging.DEBUG, logger="pypvs")
-    pvs = MatchReads([answer, answer, inverter_vars("A")])
-    updater = PVSDeviceUpdater(pvs, PVSInverter)
+    updater = PVSDeviceUpdater(PVSInverter)
 
-    first, _ = read(updater)
-    second, data = read(updater)
-    third, _ = read(updater)
+    first, _ = read(updater, answer)
+    second, data = read(updater, answer)
+    third, _ = read(updater, inverter_vars("A"))
 
     assert first == {}
     assert second == {}
