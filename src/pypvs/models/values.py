@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import re
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, overload
 
@@ -33,28 +34,28 @@ def _number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def get_float(data: dict[str, Any], key: str) -> float | None:
+def get_float(data: Mapping[str, Any], key: str) -> float | None:
     """data[key] as a finite float."""
     return _number(data.get(key))
 
 
-def get_int(data: dict[str, Any], key: str) -> int | None:
+def get_int(data: Mapping[str, Any], key: str) -> int | None:
     """data[key] as an int, if it is a whole number."""
     number = _number(data.get(key))
     return None if number is None or not number.is_integer() else int(number)
 
 
 @overload
-def get_str(data: dict[str, Any], key: str, default: str = "") -> str: ...
+def get_str(data: Mapping[str, Any], key: str, default: str = "") -> str: ...
 @overload
-def get_str(data: dict[str, Any], key: str, default: None) -> str | None: ...
-def get_str(data: dict[str, Any], key: str, default: str | None = "") -> str | None:
+def get_str(data: Mapping[str, Any], key: str, default: None) -> str | None: ...
+def get_str(data: Mapping[str, Any], key: str, default: str | None = "") -> str | None:
     """data[key] as a str."""
     value = data.get(key)
     return default if value is None else str(value)
 
 
-def get_text(data: dict[str, Any], key: str) -> str | None:
+def get_text(data: Mapping[str, Any], key: str) -> str | None:
     """data[key] as a stripped str; None if it is empty or varserver's "TBD"."""
     value = get_str(data, key, None)
     if value is None:
@@ -63,13 +64,13 @@ def get_text(data: dict[str, Any], key: str) -> str | None:
     return None if value in _PLACEHOLDERS else value
 
 
-def get_flag(data: dict[str, Any], key: str) -> bool | None:
+def get_flag(data: Mapping[str, Any], key: str) -> bool | None:
     """data[key] as a bool: True if it is a non-zero number."""
     number = _number(data.get(key))
     return None if number is None else number != 0
 
 
-def get_count(data: dict[str, Any], key: str) -> int | None:
+def get_count(data: Mapping[str, Any], key: str) -> int | None:
     """data[key] as an unsigned counter, decimal or 0x-prefixed hex."""
     value = get_text(data, key)
     if value is None:
@@ -82,7 +83,7 @@ def get_count(data: dict[str, Any], key: str) -> int | None:
         return None
 
 
-def get_hex(data: dict[str, Any], key: str) -> int | None:
+def get_hex(data: Mapping[str, Any], key: str) -> int | None:
     """data[key], hex with or without a 0x prefix, as an int."""
     value = get_text(data, key)
     if value is None:
@@ -93,7 +94,7 @@ def get_hex(data: dict[str, Any], key: str) -> int | None:
         return None
 
 
-def get_unix_time(data: dict[str, Any], key: str) -> datetime | None:
+def get_unix_time(data: Mapping[str, Any], key: str) -> datetime | None:
     """data[key], Unix time in seconds or milliseconds, as a UTC datetime."""
     seconds = _number(data.get(key))
     if seconds is None:
@@ -106,7 +107,7 @@ def get_unix_time(data: dict[str, Any], key: str) -> datetime | None:
     return datetime.fromtimestamp(seconds, tz=UTC)
 
 
-def get_report_time(data: dict[str, Any]) -> int:
+def get_report_time(data: Mapping[str, Any]) -> int:
     """A device's msmtEps ("2024-09-30T16:15:00Z") in UTC seconds.
 
     Returns 0 if it is absent or malformed.

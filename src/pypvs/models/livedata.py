@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,7 +11,7 @@ from ..api import Variable
 from .values import get_float, get_text, get_unix_time
 
 #: attribute -> its /sys/livedata variable and the function that reads it
-LIVEDATA_FIELDS: dict[str, tuple[Variable, Callable[[dict[str, Any], str], Any]]] = {
+LIVEDATA_FIELDS: dict[str, tuple[Variable, Callable[[Mapping[str, Any], str], Any]]] = {
     "time": (Variable.LIVEDATA_TIME, get_unix_time),
     "pv_p": (Variable.LIVEDATA_PV_P, get_float),
     "pv_en": (Variable.LIVEDATA_PV_EN, get_float),
