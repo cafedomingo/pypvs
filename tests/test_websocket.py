@@ -442,3 +442,10 @@ def test_reads_every_live_data_param():
         )
     )
     assert None not in asdict(ws.live_data).values()
+
+
+def test_unusable_params_read_as_missing():
+    ws = connected_ws()
+    ws._handle_message(power(pv_p="3.2", soc="0.5", time=1791944553))
+    ws._handle_message(power(pv_p="nan", soc=True, time=float("inf")))
+    assert ws.live_data == PVSLiveData()

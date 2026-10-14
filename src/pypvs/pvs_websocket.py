@@ -25,8 +25,8 @@ STALE_S = 10
 # Each param is named after the last segment of its variable's path, e.g.
 # pv_p for /sys/livedata/pv_p.
 _PARAMS = tuple(
-    (var_path.rsplit("/", 1)[1], var_path, attr, parse)
-    for attr, (var_path, parse) in LIVEDATA_FIELDS.items()
+    (var_path.rsplit("/", 1)[1], var_path, attr, get)
+    for attr, (var_path, get) in LIVEDATA_FIELDS.items()
 )
 
 _CLOSED = (
@@ -195,10 +195,10 @@ class PVSWebSocket:
         if not isinstance(params, dict) or self._live_data is None:
             return
         changed: set[str] = set()
-        for param, var_path, attr, parse in _PARAMS:
+        for param, var_path, attr, get in _PARAMS:
             if param not in params:
                 continue
-            value = parse(params[param])
+            value = get(params, param)
             if getattr(self._live_data, attr) != value:
                 setattr(self._live_data, attr, value)
                 changed.add(var_path)

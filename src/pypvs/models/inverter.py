@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from ..api import Match
-from .varserver_coerce import float_var, report_time_var, str_var
+from .values import get_float, get_report_time, get_str
 
 
 @dataclass(slots=True)
@@ -50,16 +50,16 @@ class PVSInverter:
     def from_varserver(cls, data: dict[str, Any]) -> PVSInverter:
         """Initialize from one device's variables, as group_device_vars packs them."""
         return cls(
-            serial_number=str_var(data, "sn"),
-            model=str_var(data, "prodMdlNm"),
-            last_report_date=report_time_var(data),
-            last_report_kw=float_var(data, "p3phsumKw"),
-            last_report_voltage_v=float_var(data, "vln3phavgV"),
-            last_report_current_a=float_var(data, "i3phsumA"),
-            last_report_frequency_hz=float_var(data, "freqHz"),
-            last_report_temperature_c=float_var(data, "tHtsnkDegc"),
-            lte_kwh=float_var(data, "ltea3phsumKwh"),
-            last_mppt_voltage_v=float_var(data, "vMppt1V"),
-            last_mppt_current_a=float_var(data, "iMppt1A"),
-            last_mppt_power_kw=float_var(data, "pMppt1Kw"),
+            serial_number=get_str(data, "sn"),
+            model=get_str(data, "prodMdlNm"),
+            last_report_date=get_report_time(data),
+            last_report_kw=get_float(data, "p3phsumKw"),
+            last_report_voltage_v=get_float(data, "vln3phavgV"),
+            last_report_current_a=get_float(data, "i3phsumA"),
+            last_report_frequency_hz=get_float(data, "freqHz"),
+            last_report_temperature_c=get_float(data, "tHtsnkDegc"),
+            lte_kwh=get_float(data, "ltea3phsumKwh"),
+            last_mppt_voltage_v=get_float(data, "vMppt1V"),
+            last_mppt_current_a=get_float(data, "iMppt1A"),
+            last_mppt_power_kw=get_float(data, "pMppt1Kw"),
         )
