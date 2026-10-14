@@ -6,9 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
-import random
-import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any
 
@@ -19,6 +17,17 @@ from .models.livedata import LIVEDATA_FIELD_DEFINITIONS, PVSLiveData
 
 _LOGGER = logging.getLogger(__name__)
 
+RETRY_S = 5
+CONNECT_TIMEOUT_S = 10
+# the PVS sends a message every second
+STALE_S = 10
+
+_CLOSED = (
+    aiohttp.WSMsgType.CLOSE,
+    aiohttp.WSMsgType.CLOSING,
+    aiohttp.WSMsgType.CLOSED,
+)
+
 
 class ConnectionState(Enum):
     """WebSocket connection state."""
@@ -28,364 +37,169 @@ class ConnectionState(Enum):
     CONNECTED = "connected"
 
 
-# Pre-built lookup table for websocket message processing
-# Maps ws_field_name -> (var_path, attr_name, value_type)
-_WS_FIELD_MAP: dict[str, tuple[str, str, str]] = {
-    ws_field: (var_path, attr_name, value_type)
-    for ws_field, var_path, attr_name, value_type in LIVEDATA_FIELD_DEFINITIONS
-}
-
-
-# Type aliases for callbacks
 LiveDataCallback = Callable[[set[str]], None]
 ConnectionStateCallback = Callable[[ConnectionState], None]
 
 
+def _remover(callbacks: list[Any], callback: Any) -> Callable[[], None]:
+    def remove() -> None:
+        with contextlib.suppress(ValueError):
+            callbacks.remove(callback)
+
+    return remove
+
+
 class PVSWebSocket:
-    """WebSocket client for PVS live data with auto-reconnect."""
+    """Live data the PVS pushes once a second. Reconnects until disconnect()."""
 
     def __init__(
         self,
+        session: aiohttp.ClientSession,
         host: str,
         port: int = WEBSOCKET_PORT,
-        enable_callback: Callable[[], Any] | None = None,
+        enable_callback: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
-        """Initialize the WebSocket client.
-
-        Args:
-            host: PVS hostname or IP address
-            port: WebSocket port
-            enable_callback: Optional async callable invoked before each
-                connection attempt to ensure the telemetry websocket is
-                enabled on the PVS.
-        """
-        self._host = host
-        self._port = port
+        self._session = session
+        self._url = f"ws://{host}:{port}"
         self._enable_callback = enable_callback
         self._callbacks: list[LiveDataCallback] = []
         self._state_callbacks: list[ConnectionStateCallback] = []
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._live_data: PVSLiveData | None = None
-        self._timestamp_format: str | None = None
-        self._stopping = False
         self._state = ConnectionState.DISCONNECTED
+        self._warned = False  # about the current outage
 
     @property
     def live_data(self) -> PVSLiveData | None:
-        """Return current live data."""
+        """The latest values; None while disconnected."""
         return self._live_data
 
     @property
     def is_connected(self) -> bool:
-        """Return True if websocket is connected and receiving data."""
-        return self._state == ConnectionState.CONNECTED
+        return self._state is ConnectionState.CONNECTED
 
     @property
     def state(self) -> ConnectionState:
-        """Return current connection state."""
         return self._state
 
-    def _set_state(self, state: ConnectionState) -> None:
-        """Update connection state and notify listeners."""
-        if self._state != state:
-            self._state = state
-            for callback in list(self._state_callbacks):
-                try:
-                    callback(state)
-                except Exception as e:
-                    _LOGGER.error("Error in state callback: %s", e)
-
     def add_listener(self, callback: LiveDataCallback) -> Callable[[], None]:
-        """Add a listener for live data updates.
-
-        Args:
-            callback: Function called with set of changed variable names
-
-        Returns:
-            Function to remove the listener
-        """
+        """Call `callback` with the var paths whose values changed. Returns a
+        function that removes it."""
         self._callbacks.append(callback)
-
-        def remove() -> None:
-            if callback in self._callbacks:
-                self._callbacks.remove(callback)
-
-        return remove
+        return _remover(self._callbacks, callback)
 
     def add_state_listener(
         self, callback: ConnectionStateCallback
     ) -> Callable[[], None]:
-        """Add a listener for connection state changes.
-
-        Args:
-            callback: Function called with new ConnectionState
-
-        Returns:
-            Function to remove the listener
-        """
+        """Call `callback` with each new state. Returns a function that removes
+        it."""
         self._state_callbacks.append(callback)
-
-        def remove() -> None:
-            if callback in self._state_callbacks:
-                self._state_callbacks.remove(callback)
-
-        return remove
+        return _remover(self._state_callbacks, callback)
 
     async def connect(self) -> None:
-        """Start the WebSocket connection with auto-reconnect."""
-        if self._task and not self._task.done():
-            _LOGGER.debug("WebSocket already running")
-            return
-
-        self._stopping = False
-        self._task = asyncio.create_task(self._run_websocket())
+        """Start connecting in the background."""
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._run())
 
     async def disconnect(self) -> None:
-        """Stop the WebSocket connection."""
-        self._stopping = True
-
-        if self._task and not self._task.done():
-            self._task.cancel()
-            with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                await asyncio.wait_for(self._task, timeout=2.0)
-
-        self._task = None
+        task, self._task = self._task, None
         self._live_data = None
         self._set_state(ConnectionState.DISCONNECTED)
-
-    async def _run_websocket(self) -> None:
-        """Run WebSocket connection loop with auto-reconnect."""
-        websocket_url = f"ws://{self._host}:{self._port}"
-        _LOGGER.info("Starting WebSocket connection to %s", websocket_url)
-
-        reconnect_count = 0
-        fast_retry_limit = 3
-        fast_retry_delay = 2
-        backoff_delay = 5.0
-        max_backoff = 300
-        stale_timeout = 90
-
-        # Reuse session across reconnects
-        session: aiohttp.ClientSession | None = None
-
+        if task is None:
+            return
+        task.cancel()
         try:
-            while not self._stopping:
-                heartbeat_task = None
-                last_message_time: float = 0
+            await task
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise  # the caller is being cancelled too
 
+    async def _run(self) -> None:
+        while not self._session.closed:
+            try:
+                reason = await self._connect_once()
+            except TimeoutError:
+                reason = "timed out"
+            except (aiohttp.ClientError, OSError) as e:
+                reason = str(e) or type(e).__name__
+            except Exception:
+                _LOGGER.exception("Live data websocket %s failed", self._url)
+                reason = "unexpected error"
+            self._live_data = None
+            self._set_state(ConnectionState.DISCONNECTED)
+            log = _LOGGER.debug if self._warned else _LOGGER.warning
+            log(
+                "Live data websocket %s unavailable: %s; retrying every %ss",
+                self._url,
+                reason,
+                RETRY_S,
+            )
+            self._warned = True
+            await asyncio.sleep(RETRY_S)
+
+    async def _connect_once(self) -> str:
+        """Returns why the connection ended; raises if it could not be made."""
+        self._set_state(ConnectionState.CONNECTING)
+        if self._enable_callback is not None:
+            try:
+                async with asyncio.timeout(CONNECT_TIMEOUT_S):
+                    await self._enable_callback()
+            except Exception as e:
+                _LOGGER.debug("Could not enable the telemetry websocket: %s", e)
+        async with asyncio.timeout(CONNECT_TIMEOUT_S):
+            ws = await self._session.ws_connect(self._url)
+        async with ws:
+            self._live_data = PVSLiveData()
+            self._set_state(ConnectionState.CONNECTED)
+            while True:
                 try:
-                    # Create session if needed
-                    if session is None or session.closed:
-                        session = aiohttp.ClientSession(
-                            timeout=aiohttp.ClientTimeout(total=30, connect=10),
-                            connector=aiohttp.TCPConnector(
-                                limit=1,
-                                limit_per_host=1,
-                                ttl_dns_cache=300,
-                                use_dns_cache=True,
-                                enable_cleanup_closed=True,
-                            ),
-                        )
+                    msg = await ws.receive(timeout=STALE_S)
+                except TimeoutError:
+                    return f"no message in {STALE_S}s"
+                if msg.type is aiohttp.WSMsgType.TEXT:
+                    if self._warned:
+                        _LOGGER.info("Live data websocket %s recovered", self._url)
+                        self._warned = False
+                    try:
+                        data = json.loads(msg.data)
+                    except ValueError:
+                        _LOGGER.debug("Ignoring a message that is not JSON")
+                        continue
+                    self._handle_message(data)
+                elif msg.type is aiohttp.WSMsgType.ERROR:
+                    return str(ws.exception())
+                elif msg.type in _CLOSED:
+                    return "closed by the PVS"
 
-                    self._set_state(ConnectionState.CONNECTING)
-
-                    # Ensure telemetry websocket is enabled on the PVS
-                    if self._enable_callback is not None:
-                        try:
-                            await self._enable_callback()
-                        except Exception as e:
-                            _LOGGER.warning(
-                                "Failed to enable telemetry websocket: %s", e
-                            )
-
-                    _LOGGER.info(
-                        "Attempting WebSocket connection to %s (attempt %d)",
-                        websocket_url,
-                        reconnect_count + 1,
-                    )
-
-                    async with session.ws_connect(
-                        websocket_url,
-                        heartbeat=30,
-                        compress=0,
-                    ) as ws:
-                        reconnect_count = 0
-                        backoff_delay = 5.0
-                        _LOGGER.info("WebSocket connected to %s", websocket_url)
-
-                        # Initialize live data
-                        self._live_data = PVSLiveData()
-                        self._timestamp_format = None
-                        last_message_time = time.monotonic()
-                        self._set_state(ConnectionState.CONNECTED)
-
-                        # Start heartbeat monitor
-                        async def monitor_heartbeat() -> None:
-                            while True:
-                                await asyncio.sleep(30)
-                                # reads the latest value on purpose; the task is
-                                # cancelled before last_message_time is rebound
-                                elapsed = time.monotonic() - last_message_time  # noqa: B023
-                                if elapsed > stale_timeout:
-                                    _LOGGER.warning(
-                                        "WebSocket stale (no messages for %.0fs),"
-                                        " closing",
-                                        elapsed,
-                                    )
-                                    await ws.close()
-                                    break
-
-                        heartbeat_task = asyncio.create_task(monitor_heartbeat())
-
-                        async for msg in ws:
-                            last_message_time = time.monotonic()
-
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                try:
-                                    data = json.loads(msg.data)
-                                except json.JSONDecodeError:
-                                    _LOGGER.debug("Invalid JSON in WebSocket message")
-                                    continue
-                                try:
-                                    self._process_message(data)
-                                except Exception:
-                                    # one bad message must not drop the connection
-                                    _LOGGER.exception(
-                                        "Failed to process WebSocket message"
-                                    )
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                _LOGGER.warning("WebSocket error: %s", ws.exception())
-                                break
-                            elif msg.type in (
-                                aiohttp.WSMsgType.CLOSE,
-                                aiohttp.WSMsgType.CLOSED,
-                            ):
-                                _LOGGER.info("WebSocket closed by server")
-                                break
-
-                except asyncio.CancelledError:
-                    _LOGGER.debug("WebSocket cancelled")
-                    raise
-                except Exception as e:
-                    reconnect_count += 1
-                    _LOGGER.error(
-                        "WebSocket connection failed (attempt %d): %s",
-                        reconnect_count,
-                        e,
-                    )
-                finally:
-                    if heartbeat_task and not heartbeat_task.done():
-                        heartbeat_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await heartbeat_task
-
-                    self._live_data = None
-                    self._set_state(ConnectionState.DISCONNECTED)
-
-                if self._stopping:
-                    break
-
-                # Calculate retry delay
-                if reconnect_count <= fast_retry_limit:
-                    actual_delay = float(fast_retry_delay)
-                    _LOGGER.info(
-                        "Fast retry in %ds (attempt %d/%d)",
-                        actual_delay,
-                        reconnect_count,
-                        fast_retry_limit,
-                    )
-                else:
-                    delay = min(
-                        backoff_delay
-                        * (2 ** min(reconnect_count - fast_retry_limit - 1, 5)),
-                        max_backoff,
-                    )
-                    jitter = random.uniform(0.8, 1.2)
-                    actual_delay = delay * jitter
-                    _LOGGER.info(
-                        "Reconnecting in %.1fs (exponential backoff)", actual_delay
-                    )
-                    backoff_delay = min(backoff_delay * 1.5, max_backoff)
-
-                try:
-                    await asyncio.sleep(actual_delay)
-                except asyncio.CancelledError:
-                    _LOGGER.debug("WebSocket reconnection cancelled")
-                    raise
-
-        finally:
-            # Clean up session on exit
-            if session and not session.closed:
-                await session.close()
-
-    def _process_message(self, data: dict) -> None:
-        """Process incoming WebSocket message."""
+    def _handle_message(self, data: Any) -> None:
         if not isinstance(data, dict) or data.get("notification") != "power":
             return
         params = data.get("params")
         if not isinstance(params, dict) or self._live_data is None:
             return
-        changed_vars: set[str] = set()
-
-        for ws_field, (var_path, attr_name, value_type) in _WS_FIELD_MAP.items():
+        changed = set()
+        for ws_field, var_path, attr, value_type in LIVEDATA_FIELD_DEFINITIONS:
             if ws_field not in params:
                 continue
+            value = getattr(PVSLiveData, f"_parse_{value_type}")(params[ws_field])
+            if getattr(self._live_data, attr) != value:
+                setattr(self._live_data, attr, value)
+                changed.add(var_path)
+        if not changed:
+            return
+        for callback in list(self._callbacks):
+            try:
+                callback(changed)
+            except Exception:
+                _LOGGER.exception("Live data listener failed")
 
-            new_value = self._convert_value(params[ws_field], value_type)
-            old_value = getattr(self._live_data, attr_name, None)
-
-            if old_value != new_value:
-                setattr(self._live_data, attr_name, new_value)
-                changed_vars.add(var_path)
-
-        if changed_vars:
-            # Iterate over a copy in case callbacks modify the list
-            for callback in list(self._callbacks):
-                try:
-                    callback(changed_vars)
-                except Exception as e:
-                    _LOGGER.error("Error in live data callback: %s", e)
-
-    def _convert_value(self, raw_value: Any, value_type: str) -> Any:
-        """Convert raw WebSocket value to appropriate type."""
-        if value_type == "string":
-            return PVSLiveData._parse_string(raw_value)
-
-        if value_type == "numeric":
-            return PVSLiveData._parse_numeric(raw_value)
-
-        if value_type == "timestamp":
-            # Use cached format detection for websocket stream
-            return self._convert_timestamp(raw_value)
-
-        return None
-
-    def _convert_timestamp(self, raw_value: Any) -> Any:
-        """Convert timestamp with format caching for websocket stream."""
-        if raw_value is None:
-            return None
-        try:
-            import datetime
-
-            timestamp: float = int(raw_value)
-            current_time = datetime.datetime.now(datetime.UTC).timestamp()
-
-            # Detect and cache timestamp format
-            if self._timestamp_format == "milliseconds":
-                timestamp = timestamp / 1000
-            elif self._timestamp_format == "seconds":
-                pass
-            else:
-                if timestamp > current_time + (365 * 24 * 3600):
-                    self._timestamp_format = "milliseconds"
-                    timestamp = timestamp / 1000
-                else:
-                    self._timestamp_format = "seconds"
-
-            # Validate
-            if timestamp < 0 or timestamp > current_time + (365 * 24 * 3600):
-                return None
-
-            return datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC)
-        except (ValueError, TypeError, OSError, OverflowError):
-            return None
+    def _set_state(self, state: ConnectionState) -> None:
+        if state is self._state:
+            return
+        self._state = state
+        for callback in list(self._state_callbacks):
+            try:
+                callback(state)
+            except Exception:
+                _LOGGER.exception("Connection state listener failed")

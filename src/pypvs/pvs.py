@@ -166,6 +166,7 @@ class PVS:
         if not self._host:
             raise ValueError("PVS host must be set before creating a websocket")
         return PVSWebSocket(
+            session=self.fcgi_client.session,
             host=self._host,
             port=port,
             enable_callback=self.enable_telemetry_websocket,
