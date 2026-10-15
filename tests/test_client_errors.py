@@ -118,6 +118,14 @@ def test_expired_session_triggers_one_relogin():
     assert session.logins == 2
 
 
+def test_rejected_request_without_a_password_does_not_log_in():
+    session = FakeSession(vars_status=401)
+    pvs = PVS(session=session, host="pvs.test")
+    with pytest.raises(PVSAuthenticationError, match="password must be set"):
+        asyncio.run(pvs.getVarserverVar("/sys/info/uptime"))
+    assert session.logins == 0
+
+
 def test_unreachable_pvs_is_a_communication_error():
     pvs = make_pvs(UnreachableSession())
     with pytest.raises(PVSCommunicationError, match="Cannot reach the PVS"):
