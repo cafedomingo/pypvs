@@ -86,8 +86,7 @@ def test_get_flag(raw, expected):
     [
         ("0", 0),
         ("42", 42),
-        ("0x00ab", 0xAB),
-        ("0X1F", 0x1F),
+        ("0x00ab", None),
         ("-1", None),
         ("", None),
         ("9" * 5000, None),  # over int()'s digit limit

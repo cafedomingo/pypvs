@@ -69,9 +69,6 @@ class FakePVS:
             raise BAD_REQUEST
         return self.values[name]
 
-    async def getVarserverVars(self, match):
-        raise AssertionError("the gateway updater should not use match queries")
-
     async def getVarserverVarsByName(self, names):
         self.batches.append(list(names))
         for name in names:
@@ -141,12 +138,10 @@ def test_text_values_are_trimmed_and_placeholders_dropped():
         **SYS_INFO,
         "/sys/info/fwrev": " Major 2, Revision 0x00000001, Build 3",
         "/sys/info/boardtype": "TBD",
-        "/sys/pvs/usb_erase_count": "0x00ab",
     }
     gw = run(FakePVS(values).updater())
     assert gw.firmware_revision == "Major 2, Revision 0x00000001, Build 3"
     assert gw.board_type is None
-    assert gw.usb_erase_count == 0xAB
 
 
 def test_gateway_without_extras_or_battery():

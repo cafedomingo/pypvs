@@ -71,13 +71,11 @@ def get_flag(data: Mapping[str, Any], key: str) -> bool | None:
 
 
 def get_count(data: Mapping[str, Any], key: str) -> int | None:
-    """data[key] as an unsigned counter, decimal or 0x-prefixed hex."""
+    """data[key] as an unsigned decimal counter."""
     value = get_text(data, key)
     if value is None:
         return None
     try:
-        if re.fullmatch(r"0[xX][0-9a-fA-F]+", value):
-            return int(value, 16)
         return int(value) if re.fullmatch(r"[0-9]+", value) else None
     except ValueError:  # over int()'s limit of 4300 decimal digits
         return None
