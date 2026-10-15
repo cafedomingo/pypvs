@@ -122,3 +122,24 @@ def test_unreachable_pvs_is_a_communication_error():
     pvs = make_pvs(UnreachableSession())
     with pytest.raises(PVSCommunicationError, match="Cannot reach the PVS"):
         asyncio.run(pvs.getVarserverVar("/sys/info/uptime"))
+
+
+UPTIME = {"values": [{"name": "/sys/info/uptime", "value": "1"}]}
+
+
+def test_setup_defaults_the_password_to_the_discovered_serial_number():
+    # every read gets this answer: discovery's serial number, then setup's check
+    session = FakeSession({"values": [{"name": "", "value": "ZT0000000012345"}]})
+    pvs = PVS(session=session, host="pvs.test")
+    asyncio.run(pvs.setup())
+    assert pvs.fcgi_client.auth_password == "12345"
+    assert session.logins == 1
+
+
+def test_setup_keeps_a_given_password():
+    pvs = PVS(session=FakeSession(UPTIME), host="pvs.test", password="given")
+    pvs._firmware._serial_number = "ZT0000000012345"
+    asyncio.run(pvs.setup())
+    assert pvs.fcgi_client.auth_password == "given"
+    asyncio.run(pvs.setup(auth_password="other"))
+    assert pvs.fcgi_client.auth_password == "other"

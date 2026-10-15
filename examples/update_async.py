@@ -22,9 +22,7 @@ async def main():
     async with aiohttp.ClientSession() as session:
         pvs = PVS(session=session, host=host, user="ssm_owner")
         try:
-            await pvs.discover()
-            # The password is the last 5 characters of the PVS serial number
-            await pvs.setup(auth_password=pvs.serial_number[-5:])
+            await pvs.setup()
         except PVSError as e:
             logging.error("Cannot communicate with the PVS: %s", e)
             return

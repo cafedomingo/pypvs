@@ -45,8 +45,8 @@ class PVS:
         session: The aiohttp session to make requests with.
         host: The PVS host name or IP address.
         user: The local API user.
-        password: The local API password; by default the last 5 characters
-            of the serial number.
+        password: The local API password. setup() defaults it to the last 5
+            characters of the serial number, the PVS's default password.
     """
 
     def __init__(
@@ -143,13 +143,17 @@ class PVS:
 
         Args:
             auth_password: Replaces the password given to the constructor.
+                With neither, the last 5 characters of the serial number.
         """
         if not self._firmware.serial:
             await self.discover()
+        assert self._firmware.serial is not None
 
-        if auth_password:
-            # set the password for the PVS
-            self.fcgi_client.auth_password = auth_password
+        self.fcgi_client.auth_password = (
+            auth_password
+            or self.fcgi_client.auth_password
+            or self._firmware.serial[-5:]
+        )
 
         # A rejected login surfaces here as PVSAuthenticationError.
         await self.getVarserverVar(Variable.UPTIME)
