@@ -127,7 +127,7 @@ class PVS:
         )
 
     async def getVarserverVars(self, match: str) -> dict[str, Any]:
-        """Read every variable whose name starts with match."""
+        """Read every variable whose name contains match."""
         values = _values(
             await self.getVarserver(Endpoint.VARS, params={"match": match})
         )
