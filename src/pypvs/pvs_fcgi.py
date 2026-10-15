@@ -56,8 +56,10 @@ class PVSFCGIClient:
 
     async def login_basic(self) -> None:
         """Log in with the user and password."""
-        if not self.auth_user:
-            raise PVSFCGIClientLoginError("Auth user must be set before logging in.")
+        if not self.auth_user or not self.auth_password:
+            raise PVSFCGIClientLoginError(
+                "Auth user and password must be set before logging in."
+            )
 
         # The PVS uses basic authentication with the username and password
         auth_token = base64.b64encode(

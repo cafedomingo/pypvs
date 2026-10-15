@@ -23,6 +23,7 @@ async def main():
             print(
                 "Please set the PVS_SN environment variable with the PVS serial number."
             )
+            return
         # The username is: ssm_owner
         # The password is: the last 5 characters of the PVS serial number
         client = PVSFCGIClient(
@@ -32,6 +33,7 @@ async def main():
         host = os.getenv("PVS_HOST")
         if host is None:
             print("Please set the PVS_HOST environment variable with the PVS IP.")
+            return
         client.pvs_url = f"https://{host}"  # PVS URL with configurable host
 
         # We don't need to call login_basic() because refresh of the session cookies
