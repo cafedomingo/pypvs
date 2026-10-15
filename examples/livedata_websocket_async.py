@@ -56,11 +56,8 @@ async def main():
     async with aiohttp.ClientSession() as session:
         pvs = PVS(session=session, host=host, user="ssm_owner")
         try:
-            await pvs.discover()
-            pvs_serial = pvs.serial_number
-            pvs_password = pvs_serial[-5:]
-            await pvs.setup(auth_password=pvs_password)
-            _LOGGER.info("Connected to PVS with serial: %s", pvs_serial)
+            await pvs.setup()
+            _LOGGER.info("Connected to PVS with serial: %s", pvs.serial_number)
         except PVSError as e:
             _LOGGER.error("Cannot communicate with the PVS: %s", e)
             return
