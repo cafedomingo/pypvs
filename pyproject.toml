@@ -31,7 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 examples = ["zeroconf"]
 test = ["pytest"]
-lint = ["ruff==0.16.9", "mypy==2.3.1"]
+lint = ["ruff==0.17.2", "mypy==2.4.0"]
 
 [project.urls]
 Homepage = "https://github.com/cafedomingo/pypvs"
