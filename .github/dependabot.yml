@@ -9,3 +9,5 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # pypvs is a library: raise a minimum only when it excludes the newest release.
+    versioning-strategy: increase-if-necessary
