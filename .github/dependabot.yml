@@ -4,10 +4,22 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     # pypvs is a library: raise a minimum only when it excludes the newest release.
     versioning-strategy: increase-if-necessary
+    groups:
+      pip:
+        patterns: ["*"]
+        update-types: [minor, patch]
