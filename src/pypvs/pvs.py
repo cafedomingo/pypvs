@@ -25,6 +25,26 @@ from .updaters.gateway import PVSGatewayUpdater
 
 _LOGGER = logging.getLogger(__name__)
 
+#: kept out of logs and errors: the PVS's default password is the last 5
+#: characters of its serial number
+_SECRET_VARIABLES = frozenset({Variable.SERIALNUM})
+
+
+def _redacted(response_data: Any) -> Any:
+    """A /vars response with the values of secret variables hidden."""
+    if not isinstance(response_data, dict) or not isinstance(
+        response_data.get("values"), list
+    ):
+        return response_data
+    return response_data | {
+        "values": [
+            item | {"value": "<redacted>"}
+            if isinstance(item, dict) and item.get("name") in _SECRET_VARIABLES
+            else item
+            for item in response_data["values"]
+        ]
+    }
+
 
 def _values(response_data: Any) -> dict[str, Any]:
     """{name: value} from a /vars response's "values" list."""
@@ -32,7 +52,7 @@ def _values(response_data: Any) -> dict[str, Any]:
         return {item["name"]: item["value"] for item in response_data["values"]}
     except (KeyError, TypeError) as err:
         raise PVSDataFormatError(
-            f"Cannot construct dictionary from response {response_data}"
+            f"Cannot construct dictionary from response {_redacted(response_data)}"
         ) from err
 
 
@@ -89,7 +109,7 @@ class PVS:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
             )
-            _LOGGER.debug("Received response: %s", response_data)
+            _LOGGER.debug("Received response: %s", _redacted(response_data))
             return response_data
         except PVSFCGIClientLoginError as err:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
@@ -107,12 +127,10 @@ class PVS:
         response_data = await self.getVarserver(Endpoint.VARS, params={"name": varname})
 
         try:
-            value = response_data["values"][0]["value"]
-            _LOGGER.debug("Received %s: %s", varname, value)
-            return value
+            return response_data["values"][0]["value"]
         except (KeyError, IndexError, TypeError) as err:
             raise PVSDataFormatError(
-                f"Cannot extract {varname} from response {response_data}"
+                f"Cannot extract {varname} from response {_redacted(response_data)}"
             ) from err
 
     async def getVarserverVarsByName(self, names: list[str]) -> dict[str, Any]:
@@ -128,11 +146,7 @@ class PVS:
 
     async def getVarserverVars(self, match: str) -> dict[str, Any]:
         """Read every variable whose name contains match."""
-        values = _values(
-            await self.getVarserver(Endpoint.VARS, params={"match": match})
-        )
-        _LOGGER.debug("Received %s values: %s", len(values), values)
-        return values
+        return _values(await self.getVarserver(Endpoint.VARS, params={"match": match}))
 
     async def discover(self) -> None:
         """Discover the PVS and its capabilities."""
