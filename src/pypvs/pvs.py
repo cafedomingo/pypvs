@@ -89,7 +89,8 @@ class PVS:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
             )
-            _LOGGER.debug("Received response: %s", response_data)
+            if params != {"name": Variable.SERIALNUM}:
+                _LOGGER.debug("Received response: %s", response_data)
             return response_data
         except PVSFCGIClientLoginError as err:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
@@ -108,7 +109,8 @@ class PVS:
 
         try:
             value = response_data["values"][0]["value"]
-            _LOGGER.debug("Received %s: %s", varname, value)
+            if varname != Variable.SERIALNUM:
+                _LOGGER.debug("Received %s: %s", varname, value)
             return value
         except (KeyError, IndexError, TypeError) as err:
             raise PVSDataFormatError(
