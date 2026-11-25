@@ -1,7 +1,7 @@
-"""The PVS serial number stays out of the debug logs.
+"""Discovery keeps the serial number out of the debug logs.
 
-The PVS's default password is the last 5 characters of its serial number,
-and debug logs get shared when reporting problems.
+It gives away the default password (its last 5 characters), and debug logs
+end up in bug reports.
 """
 
 from __future__ import annotations
