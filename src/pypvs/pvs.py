@@ -89,8 +89,6 @@ class PVS:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
             )
-            # The serial number gives away the default password (its last 5
-            # characters), and debug logs end up in bug reports.
             if params != {"name": Variable.SERIALNUM}:
                 _LOGGER.debug("Received response: %s", response_data)
             return response_data
@@ -111,7 +109,7 @@ class PVS:
 
         try:
             value = response_data["values"][0]["value"]
-            if varname != Variable.SERIALNUM:  # gives away the password
+            if varname != Variable.SERIALNUM:
                 _LOGGER.debug("Received %s: %s", varname, value)
             return value
         except (KeyError, IndexError, TypeError) as err:
