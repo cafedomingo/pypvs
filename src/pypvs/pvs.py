@@ -25,33 +25,6 @@ from .updaters.gateway import PVSGatewayUpdater
 
 _LOGGER = logging.getLogger(__name__)
 
-#: hidden in logs and errors: the PVS's default password is the last 5
-#: characters of its serial number
-_SECRET_VARIABLES = frozenset({Variable.SERIALNUM})
-_REDACTED = "<redacted>"
-
-
-def _is_secret(name: Any) -> bool:
-    return isinstance(name, str) and name in _SECRET_VARIABLES
-
-
-def _redacted(response_data: Any) -> Any:
-    """A /vars response with the values of secret variables hidden."""
-    if not isinstance(response_data, dict) or not isinstance(
-        response_data.get("values"), list
-    ):
-        return response_data
-    return response_data | {
-        "values": [
-            item | {"value": _REDACTED}
-            if isinstance(item, dict)
-            and "value" in item
-            and _is_secret(item.get("name"))
-            else item
-            for item in response_data["values"]
-        ]
-    }
-
 
 def _values(response_data: Any) -> dict[str, Any]:
     """{name: value} from a /vars response's "values" list."""
@@ -59,7 +32,7 @@ def _values(response_data: Any) -> dict[str, Any]:
         return {item["name"]: item["value"] for item in response_data["values"]}
     except (KeyError, TypeError) as err:
         raise PVSDataFormatError(
-            f"Cannot construct dictionary from response {_redacted(response_data)}"
+            f"Cannot construct dictionary from response {response_data}"
         ) from err
 
 
@@ -116,7 +89,10 @@ class PVS:
             response_data = await self.fcgi_client.execute_post_request(
                 endpoint, params=params
             )
-            _LOGGER.debug("Received response: %s", _redacted(response_data))
+            # Not the serial number: the PVS's default password is its last 5
+            # characters, and debug logs get shared
+            if params != {"name": Variable.SERIALNUM}:
+                _LOGGER.debug("Received response: %s", response_data)
             return response_data
         except PVSFCGIClientLoginError as err:
             raise PVSAuthenticationError(f"Login to the PVS failed: {err}") from err
@@ -135,13 +111,12 @@ class PVS:
 
         try:
             value = response_data["values"][0]["value"]
-            _LOGGER.debug(
-                "Received %s: %s", varname, _REDACTED if _is_secret(varname) else value
-            )
+            if varname != Variable.SERIALNUM:  # see getVarserver
+                _LOGGER.debug("Received %s: %s", varname, value)
             return value
         except (KeyError, IndexError, TypeError) as err:
             raise PVSDataFormatError(
-                f"Cannot extract {varname} from response {_redacted(response_data)}"
+                f"Cannot extract {varname} from response {response_data}"
             ) from err
 
     async def getVarserverVarsByName(self, names: list[str]) -> dict[str, Any]:
@@ -160,11 +135,7 @@ class PVS:
         values = _values(
             await self.getVarserver(Endpoint.VARS, params={"match": match})
         )
-        _LOGGER.debug(
-            "Received %s values: %s",
-            len(values),
-            {n: _REDACTED if _is_secret(n) else v for n, v in values.items()},
-        )
+        _LOGGER.debug("Received %s values: %s", len(values), values)
         return values
 
     async def discover(self) -> None:
